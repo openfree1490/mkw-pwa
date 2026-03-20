@@ -956,6 +956,18 @@ def get_daily_brief():
 def health():
     return {"status": "ok", "finnhub": bool(FINNHUB_KEY), "claude": bool(CLAUDE_KEY)}
 
+@app.get("/api/debug/watchlist")
+def debug_watchlist():
+    import traceback
+    try:
+        spy_df = get_spy()
+        if spy_df is None:
+            return {"error": "get_spy() returned None"}
+        result = analyze_ticker("NVDA", spy_df, _mkt_snapshot)
+        return {"ok": True, "result": result}
+    except Exception as e:
+        return {"error": str(e), "trace": traceback.format_exc()}
+
 # ── Serve static frontend (production) ──
 dist_path = os.path.join(os.path.dirname(__file__), "..", "dist")
 if os.path.isdir(dist_path):
