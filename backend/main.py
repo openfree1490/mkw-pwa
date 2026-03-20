@@ -45,6 +45,25 @@ SECTOR_NAMES = {
 }
 
 # ─────────────────────────────────────────────
+# NUMPY SERIALIZATION FIX
+# ─────────────────────────────────────────────
+def to_python(obj):
+    """Recursively convert numpy types to native Python for JSON serialization."""
+    if isinstance(obj, dict):
+        return {k: to_python(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [to_python(v) for v in obj]
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return obj
+
+# ─────────────────────────────────────────────
 # CACHE
 # ─────────────────────────────────────────────
 _cache: dict = {}
@@ -876,7 +895,7 @@ def get_watchlist():
         if result:
             stocks.append(result)
 
-    resp = {"stocks": stocks, "lastUpdated": datetime.utcnow().isoformat()}
+    resp = to_python({"stocks": stocks, "lastUpdated": datetime.utcnow().isoformat()})
     cache_set("watchlist", resp)
     return resp
 
@@ -892,6 +911,7 @@ def get_analyze(ticker: str):
     if result is None:
         raise HTTPException(404, f"Could not analyze {ticker}")
 
+    result = to_python(result)
     cache_set(key, result)
     return result
 
@@ -900,7 +920,7 @@ def get_breadth():
     cached = cache_get("breadth", CACHE_BREADTH)
     if cached: return cached
 
-    data = compute_breadth()
+    data = to_python(compute_breadth())
     # Update global mkt snapshot so other endpoints stay in sync
     global _mkt_snapshot
     _mkt_snapshot = {
@@ -919,7 +939,7 @@ def get_threats():
 
     spy_df = get_spy()
     data = compute_threats(spy_df or pd.DataFrame(), _mkt_snapshot)
-    resp = {"threats": data, "lastUpdated": datetime.utcnow().isoformat()}
+    resp = to_python({"threats": data, "lastUpdated": datetime.utcnow().isoformat()})
     cache_set("threats", resp)
     return resp
 
