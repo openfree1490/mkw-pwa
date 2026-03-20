@@ -848,6 +848,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi.responses import JSONResponse
+import traceback
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    return JSONResponse(
+        status_code=500,
+        content={"error": str(exc), "type": type(exc).__name__, "trace": traceback.format_exc()}
+    )
+
 # ── Endpoints ──
 
 @app.get("/api/watchlist")
