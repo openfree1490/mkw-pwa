@@ -7,6 +7,7 @@ import os, time, json, logging, asyncio
 from datetime import datetime, timedelta
 from typing import Optional
 from contextlib import asynccontextmanager
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pandas as pd
@@ -851,11 +852,23 @@ Write in a direct, professional tone with markdown headers. No disclaimers.""",
 # ─────────────────────────────────────────────
 # FASTAPI APP
 # ─────────────────────────────────────────────
+def _warmup():
+    log.info("Warming up watchlist cache in background...")
+    try:
+        resp = _build_watchlist()
+        if resp:
+            cache_set("watchlist", resp)
+            log.info(f"Watchlist cache warmed: {len(resp.get('stocks', []))} stocks")
+    except Exception as e:
+        log.warning(f"Warmup failed: {e}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Warm up SPY data on startup
     log.info("Warming up SPY data...")
     get_spy()
+    # Pre-build watchlist cache in background so first user request is instant
+    import threading
+    threading.Thread(target=_warmup, daemon=True).start()
     yield
 
 app = FastAPI(title="MKW Command Center API", lifespan=lifespan)
@@ -879,23 +892,30 @@ async def global_exception_handler(request, exc):
 
 # ── Endpoints ──
 
+def _build_watchlist():
+    """Fetch and analyze all watchlist tickers in parallel (max 5 workers)."""
+    spy_df = get_spy()
+    if spy_df is None:
+        return None
+    mkt = _mkt_snapshot
+    def _fetch(tk):
+        try:
+            return analyze_ticker(tk, spy_df, mkt)
+        except Exception as e:
+            log.warning(f"analyze_ticker failed for {tk}: {e}")
+            return None
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        results = list(ex.map(_fetch, WATCHLIST))
+    stocks = [r for r in results if r]
+    return to_python({"stocks": stocks, "lastUpdated": datetime.utcnow().isoformat()})
+
 @app.get("/api/watchlist")
 def get_watchlist():
     cached = cache_get("watchlist", CACHE_WATCHLIST)
     if cached: return cached
-
-    spy_df = get_spy()
-    if spy_df is None:
+    resp = _build_watchlist()
+    if resp is None:
         raise HTTPException(503, "Could not fetch market data")
-
-    mkt = _mkt_snapshot
-    stocks = []
-    for tk in WATCHLIST:
-        result = analyze_ticker(tk, spy_df, mkt)
-        if result:
-            stocks.append(result)
-
-    resp = to_python({"stocks": stocks, "lastUpdated": datetime.utcnow().isoformat()})
     cache_set("watchlist", resp)
     return resp
 
