@@ -1027,7 +1027,7 @@ def get_analyze(ticker: str):
     if cached: return cached
 
     spy_df = get_spy()
-    result = analyze_ticker(ticker, spy_df or pd.DataFrame(), _mkt_snapshot)
+    result = analyze_ticker(ticker, spy_df if spy_df is not None else pd.DataFrame(), _mkt_snapshot)
     if result is None:
         raise HTTPException(404, f"Could not analyze {ticker}")
 
@@ -1058,7 +1058,7 @@ def get_threats():
     if cached: return cached
 
     spy_df = get_spy()
-    data = compute_threats(spy_df or pd.DataFrame(), _mkt_snapshot)
+    data = compute_threats(spy_df if spy_df is not None else pd.DataFrame(), _mkt_snapshot)
     resp = to_python({"threats": data, "lastUpdated": datetime.utcnow().isoformat()})
     cache_set("threats", resp)
     return resp
