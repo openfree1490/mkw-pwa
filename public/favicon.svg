@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="108" fill="#06090f"/>
+  <rect x="20" y="20" width="472" height="472" rx="88" fill="none" stroke="#ffd700" stroke-width="4" opacity="0.3"/>
+  <text x="256" y="200" text-anchor="middle" font-family="system-ui,sans-serif" font-weight="800" font-size="120" fill="#ffd700">MKW</text>
+  <text x="256" y="280" text-anchor="middle" font-family="monospace" font-size="36" fill="#5a6785">CONVERGENCE</text>
+  <line x1="100" y1="320" x2="412" y2="320" stroke="#182030" stroke-width="2"/>
+  <circle cx="180" cy="380" r="24" fill="#00e676" opacity="0.2"/><text x="180" y="386" text-anchor="middle" font-family="monospace" font-size="18" fill="#00e676">W</text>
+  <circle cx="256" cy="380" r="24" fill="#b388ff" opacity="0.2"/><text x="256" y="386" text-anchor="middle" font-family="monospace" font-size="18" fill="#b388ff">M</text>
+  <circle cx="332" cy="380" r="24" fill="#18ffff" opacity="0.2"/><text x="332" y="386" text-anchor="middle" font-family="monospace" font-size="18" fill="#18ffff">K</text>
+  <path d="M168 430 L256 410 L344 430" fill="none" stroke="#ffd700" stroke-width="2" opacity="0.5"/>
+  <circle cx="256" cy="450" r="8" fill="#ffd700" opacity="0.6"/>
+</svg>
