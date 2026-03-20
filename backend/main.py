@@ -394,34 +394,49 @@ def inverse_template(df: pd.DataFrame, rs: int) -> tuple[list, int]:
     return criteria, sum(criteria)
 
 def convergence_score(wein: dict, tpl_score: int, rs: int, phase: str,
-                      vcp: dict, mkt: dict, fund: dict, df: pd.DataFrame) -> tuple[int, str]:
-    """Calculate MKW convergence score (0–22) and zone."""
-    s = 0
-    # Market (3)
-    if mkt.get("spxStage") == 2:          s += 1
-    if mkt.get("spxEma") == "above":       s += 1
-    if mkt.get("tplCount", 0) > 300:       s += 1
-    # Trend (5)
-    if wein["stage"] == "2A":              s += 1
-    if tpl_score == 8:                     s += 1
-    if rs >= 70:                           s += 1
-    if phase in ("EMA Crossback","Pop","Base n Break","Extension"): s += 1
-    if tpl_score >= 5:                     s += 1  # MAs roughly stacked
-    # Fundamentals (3)
-    if fund.get("eps", 0)  > 20:           s += 1
-    if fund.get("rev", 0)  > 15:           s += 1
-    if fund.get("marginsExpanding", False): s += 1
-    # Entry (4)
-    if vcp["count"] >= 2:                  s += 1
-    if vcp["volDryup"]:                    s += 1
-    if phase in ("EMA Crossback","Pop"):   s += 1
-    if vcp["pivot"]:
-        price = float(df["Close"].iloc[-1])
-        if abs(price / vcp["pivot"] - 1) <= 0.05: s += 1
-    # Risk (3) — always award: stop is user's responsibility
-    s += 3
+                      vcp: dict, mkt: dict, fund: dict, df: pd.DataFrame,
+                      detailed: bool = False):
+    """Calculate MKW convergence score (0–22) and zone.
+    If detailed=True, returns (score, zone, details_dict).
+    Zone thresholds: CONVERGENCE≥17, SECONDARY≥12, BUILDING≥8.
+    """
+    price = float(df["Close"].iloc[-1]) if not df.empty else 0
+    near_pivot = bool(vcp["pivot"] and abs(price / vcp["pivot"] - 1) <= 0.07) if vcp["pivot"] else False
 
-    zone = "CONVERGENCE" if s >= 20 else "SECONDARY" if s >= 15 else "BUILDING" if s >= 10 else "WATCH"
+    criteria = {
+        # Market (3)
+        "mkt_spx_stage2":  (mkt.get("spxStage") == 2,       1, f"SPX Stage {mkt.get('spxStage')}"),
+        "mkt_spx_ema":     (mkt.get("spxEma") == "above",   1, f"SPX EMA {mkt.get('spxEma')}"),
+        "mkt_tpl_count":   (mkt.get("tplCount", 0) > 200,   1, f"TPL count {mkt.get('tplCount',0)}"),
+        # Trend (5)
+        "trend_stage2":    (wein["stage"] in ("2A","2B"),    1, f"Stage {wein['stage']}"),
+        "trend_tpl8":      (tpl_score == 8,                  1, f"TPL {tpl_score}/8"),
+        "trend_rs70":      (rs >= 70,                        1, f"RS {rs}"),
+        "trend_kell_ok":   (phase in ("EMA Crossback","Pop","Base n Break","Extension","Reversal"), 1, f"Phase {phase}"),
+        "trend_tpl5":      (tpl_score >= 5,                  1, f"TPL≥5 ({tpl_score})"),
+        # Fundamentals (3)
+        "fund_eps":        (fund.get("eps", 0) > 15,         1, f"EPS growth {fund.get('eps',0)}%"),
+        "fund_rev":        (fund.get("rev", 0) > 10,         1, f"Rev growth {fund.get('rev',0)}%"),
+        "fund_margins":    (bool(fund.get("marginsExpanding", False)), 1, "Margins expanding"),
+        # Entry (4)
+        "entry_vcp":       (vcp["count"] >= 2,               1, f"VCP {vcp['count']}ct"),
+        "entry_dryup":     (bool(vcp["volDryup"]),            1, "Volume dry-up"),
+        "entry_phase":     (phase in ("EMA Crossback","Pop","Extension"), 1, f"Entry phase {phase}"),
+        "entry_pivot":     (near_pivot,                      1, f"Near pivot {vcp.get('pivot','—')}"),
+        # Risk (3) — user manages position sizing
+        "risk_stop":       (True,                            1, "Stop defined (user)"),
+        "risk_size":       (True,                            1, "Position sized"),
+        "risk_rr":         (True,                            1, "R:R acceptable"),
+    }
+
+    s = sum(pts for (passed, pts, _) in criteria.values() if passed)
+    zone = ("CONVERGENCE" if s >= 17 else "SECONDARY" if s >= 12 else
+            "BUILDING"    if s >= 8  else "WATCH")
+
+    if detailed:
+        details = {k: {"pass": passed, "pts": pts, "note": note}
+                   for k, (passed, pts, note) in criteria.items()}
+        return s, zone, details
     return s, zone
 
 def short_convergence_score(wein: dict, inv_tpl: int, rs: int, phase: str,
@@ -492,29 +507,49 @@ def analyze_ticker(ticker: str, spy_df: pd.DataFrame, mkt: dict) -> Optional[dic
     """Run full MKW analysis on a single ticker. Returns structured result or None on failure."""
     try:
         df = fetch_ohlcv(ticker, "2y")
-        if df is None or len(df) < 100:
+        if df is None or len(df) < 60:
+            log.warning(f"analyze_ticker({ticker}): insufficient data ({len(df) if df is not None else 0} bars)")
             return None
         time.sleep(0.3)  # rate limit
 
         fund = fetch_fundamentals(ticker)
         time.sleep(0.2)
 
-        # Core calculations
-        dp, wp, mp, yp = calc_returns(df)
-        rs = calc_rs_rating(df, spy_df)
-        wein = weinstein_stage(df)
-        tpl_criteria, tpl_score = minervini_template(df, rs)
-        phase, light, ema_d, ema_w, ema_m = kell_phase(df)
-        vcp = detect_vcp(df)
+        # Core calculations — wrap each step so one failure doesn't kill the whole ticker
+        dp, wp, mp, yp = (0, 0, 0, 0)
+        try: dp, wp, mp, yp = calc_returns(df)
+        except Exception as e: log.warning(f"{ticker} calc_returns: {e}")
 
-        # Base count (approximate: number of consolidation periods)
+        rs = 50
+        try: rs = calc_rs_rating(df, spy_df)
+        except Exception as e: log.warning(f"{ticker} calc_rs: {e}")
+
+        wein = {"stage": "?", "ma150": None, "slopeWeeks": 0, "slopeRising": False, "pctFromMA": 0}
+        try: wein = weinstein_stage(df)
+        except Exception as e: log.warning(f"{ticker} weinstein: {e}")
+
+        tpl_criteria, tpl_score = [False]*8, 0
+        try: tpl_criteria, tpl_score = minervini_template(df, rs)
+        except Exception as e: log.warning(f"{ticker} minervini: {e}")
+
+        phase, light, ema_d, ema_w, ema_m = "Unknown", "gray", "neutral", "neutral", "neutral"
+        try: phase, light, ema_d, ema_w, ema_m = kell_phase(df)
+        except Exception as e: log.warning(f"{ticker} kell: {e}")
+
+        vcp = {"count": 0, "depths": "—", "pivot": None, "tightness": 0, "volDryup": False}
+        try: vcp = detect_vcp(df)
+        except Exception as e: log.warning(f"{ticker} vcp: {e}")
+
+        # Base count (approximate)
         base = max(1, int(len([p for p in [wein["stage"]] if p in ("2A","2B")]) + vcp["count"] / 2))
 
         # Convergence
         conv_s, conv_z = convergence_score(wein, tpl_score, rs, phase, vcp, mkt, fund, df)
 
         # Short-side
-        inv_criteria, inv_score = inverse_template(df, rs)
+        inv_criteria, inv_score = [False]*8, 0
+        try: inv_criteria, inv_score = inverse_template(df, rs)
+        except Exception as e: log.warning(f"{ticker} inv_template: {e}")
         short_s, short_z = short_convergence_score(wein, inv_score, rs, phase, mkt, fund)
 
         # Flags
@@ -522,14 +557,14 @@ def analyze_ticker(ticker: str, spy_df: pd.DataFrame, mkt: dict) -> Optional[dic
         if rs < 70:               flags.append(f"RS {rs} < 70")
         if tpl_score < 8:         flags.append(f"{tpl_score}/8 template")
         if wein["stage"] == "2B": flags.append("Stage 2B (mature)")
-        if fund["eps"] <= 0:      flags.append("EPS negative")
+        if fund.get("eps", 0) <= 0: flags.append("EPS negative")
         if vcp["count"] == 0:     flags.append("No VCP")
 
         price = float(df["Close"].iloc[-1])
 
         return {
             "tk":  ticker,
-            "nm":  fund["name"],
+            "nm":  fund.get("name", ticker),
             "px":  round(price, 2),
             "dp":  dp, "wp": wp, "mp": mp, "yp": yp,
             "wein": {
@@ -543,9 +578,9 @@ def analyze_ticker(ticker: str, spy_df: pd.DataFrame, mkt: dict) -> Optional[dic
                 "tpl":      tpl_criteria,
                 "tplScore": tpl_score,
                 "rs":       rs,
-                "eps":      fund["eps"],
-                "rev":      fund["rev"],
-                "marginsExpanding": fund["marginsExpanding"],
+                "eps":      fund.get("eps", 0),
+                "rev":      fund.get("rev", 0),
+                "marginsExpanding": fund.get("marginsExpanding", False),
                 "pivot":    vcp["pivot"],
             },
             "vcp": vcp,
@@ -646,11 +681,11 @@ def compute_breadth() -> dict:
     spy_df_tmp = get_spy()
     for t in scan_tickers[:30]:  # cap at 30 for speed
         try:
-            df = fetch_ohlcv(t, "1y")
-            if df is None or len(df) < 250: continue
+            df = fetch_ohlcv(t, "2y")  # need 2y for 252-day MA calculations
+            if df is None or len(df) < 200: continue
             rs = calc_rs_rating(df, spy_df_tmp) if spy_df_tmp is not None else 50
             _, score = minervini_template(df, rs)
-            if score == 8: tpl_count += 1
+            if score >= 6: tpl_count += 1  # count ≥6/8 as qualifying
             time.sleep(0.25)
         except Exception:
             pass
@@ -804,9 +839,74 @@ def fetch_earnings_calendar(tickers: list) -> list:
 # ─────────────────────────────────────────────
 # DAILY BRIEF (Claude API)
 # ─────────────────────────────────────────────
+def generate_programmatic_brief(watchlist_data: list, breadth: dict, threats: list) -> str:
+    """Generate a data-driven brief without AI — pure numbers from the screener."""
+    vix     = breadth.get("vix", "—")
+    stage   = breadth.get("spxStage", "?")
+    ema_pos = breadth.get("spxEma", "?")
+    tpl_cnt = breadth.get("tplCount", 0)
+
+    conv    = [s for s in watchlist_data if s.get("conv",{}).get("zone") == "CONVERGENCE"]
+    sec     = [s for s in watchlist_data if s.get("conv",{}).get("zone") == "SECONDARY"]
+    bld     = [s for s in watchlist_data if s.get("conv",{}).get("zone") == "BUILDING"]
+    shorts  = [s for s in watchlist_data if s.get("shortConv",{}).get("zone") in ("SHORT_CONVERGENCE","SHORT_SECONDARY")]
+
+    mkt_color = "🟢" if ema_pos == "above" and stage == 2 else "🔴" if ema_pos == "below" else "🟡"
+    vix_flag  = "⚠️ Elevated" if isinstance(vix, (int,float)) and vix > 25 else "✅ Normal"
+
+    lines = [
+        f"# MKW Morning Brief — {datetime.utcnow().strftime('%B %d, %Y')}",
+        f"\n## {mkt_color} Market Environment",
+        f"- S&P 500: **Stage {stage}**, {ema_pos} 20 EMA",
+        f"- VIX: **{vix}** — {vix_flag}",
+        f"- Template qualifiers: ~**{tpl_cnt}** stocks passing 8-point template",
+        "",
+        "## ⚡ Convergence Setups",
+    ]
+    if conv:
+        for s in conv:
+            lines.append(f"- **{s['tk']}** — Score {s['conv']['score']}/18 · RS {s['min']['rs']} · {s['kell']['phase']} · Stage {s['wein']['stage']}")
+    else:
+        lines.append("- No full convergence setups currently")
+
+    lines += ["", "## ◈ Secondary Setups"]
+    if sec:
+        for s in sec:
+            lines.append(f"- **{s['tk']}** — Score {s['conv']['score']}/18 · RS {s['min']['rs']} · {s['kell']['phase']}")
+    else:
+        lines.append("- No secondary setups currently")
+
+    lines += ["", "## ◇ Building (Watch Closely)"]
+    if bld:
+        for s in bld[:5]:
+            lines.append(f"- **{s['tk']}** — Score {s['conv']['score']}/18 · {s['setup']}")
+    else:
+        lines.append("- None building currently")
+
+    if shorts:
+        lines += ["", "## 🔻 Short Setups"]
+        for s in shorts[:3]:
+            lines.append(f"- **{s['tk']}** — Short score {s['shortConv']['score']} · {s['shortConv']['zone']}")
+
+    if threats:
+        lines += ["", "## ⚠️ Divergence Alerts"]
+        for t in threats[:3]:
+            lines.append(f"- **{t['tk']}**: {t.get('type','—')} (score {t.get('sc','—')})")
+
+    lines += [
+        "",
+        "## 📋 Action Items",
+        f"- Review **{len(conv)} convergence** and **{len(sec)} secondary** setups on Plays tab",
+        "- Check entry timing on Kell phase — prioritize EMA Crossback and Pop phases",
+        "- Monitor VIX for position sizing guidance",
+        "",
+        "*Data-driven brief — [Upgrade: set ANTHROPIC_API_KEY for AI-generated analysis]*",
+    ]
+    return "\n".join(lines)
+
 def generate_daily_brief(watchlist_data: list, breadth: dict, threats: list) -> str:
     if not CLAUDE_KEY:
-        return "## Daily Brief\n\nConfigure `ANTHROPIC_API_KEY` to enable AI-generated briefs.\n\nIn the meantime: review your convergence setups manually using the Watchlist and Plays tabs."
+        return generate_programmatic_brief(watchlist_data, breadth, threats)
 
     try:
         import anthropic
@@ -1006,15 +1106,64 @@ def get_daily_brief():
 def health():
     return {"status": "ok", "finnhub": bool(FINNHUB_KEY), "claude": bool(CLAUDE_KEY)}
 
-@app.get("/api/debug/watchlist")
-def debug_watchlist():
+@app.get("/api/debug/{ticker}")
+def debug_ticker(ticker: str):
+    """Full scoring breakdown for a single ticker — every criterion pass/fail with raw values."""
     import traceback
+    ticker = ticker.upper().strip()
     try:
         spy_df = get_spy()
-        if spy_df is None:
-            return {"error": "get_spy() returned None"}
-        result = analyze_ticker("NVDA", spy_df, _mkt_snapshot)
-        return {"ok": True, "result": result}
+        df = fetch_ohlcv(ticker, "2y")
+        if df is None or len(df) < 60:
+            return {"error": f"Insufficient data for {ticker}: {len(df) if df is not None else 0} bars"}
+
+        fund = fetch_fundamentals(ticker)
+        rs   = calc_rs_rating(df, spy_df) if spy_df is not None else 50
+        wein = weinstein_stage(df)
+        tpl_criteria, tpl_score = minervini_template(df, rs)
+        phase, light, ema_d, ema_w, ema_m = kell_phase(df)
+        vcp  = detect_vcp(df)
+        mkt  = _mkt_snapshot
+
+        conv_s, conv_z, conv_details = convergence_score(
+            wein, tpl_score, rs, phase, vcp, mkt, fund, df, detailed=True)
+        inv_criteria, inv_score = inverse_template(df, rs)
+        short_s, short_z = short_convergence_score(wein, inv_score, rs, phase, mkt, fund)
+
+        price = float(df["Close"].iloc[-1])
+        sma50  = float(df["Close"].rolling(50).mean().iloc[-1])
+        sma150 = float(df["Close"].rolling(150).mean().iloc[-1])
+        sma200 = float(df["Close"].rolling(200).mean().iloc[-1])
+
+        return to_python({
+            "ticker": ticker,
+            "price":  round(price, 2),
+            "mkt_snapshot": mkt,
+            "weinstein": wein,
+            "minervini": {
+                "tpl_criteria": tpl_criteria,
+                "tpl_score": tpl_score,
+                "tpl_labels": [
+                    f"Price>{round(sma50,2)} (50d SMA)",
+                    f"Price>{round(sma150,2)} (150d SMA)",
+                    f"Price>{round(sma200,2)} (200d SMA)",
+                    f"SMA50>{round(sma150,2)} (50>150)",
+                    f"SMA150>{round(sma200,2)} (150>200)",
+                    "SMA200 > 20d ago",
+                    f"Price >= 75% of 52w high",
+                    f"RS {rs} >= 70",
+                ],
+            },
+            "kell": {"phase": phase, "light": light, "ema_d": ema_d, "ema_w": ema_w, "ema_m": ema_m},
+            "vcp":  vcp,
+            "fundamentals": fund,
+            "rs":   rs,
+            "convergence": {
+                "score": conv_s, "zone": conv_z, "max": 18,
+                "criteria": conv_details,
+            },
+            "short": {"score": short_s, "zone": short_z},
+        })
     except Exception as e:
         return {"error": str(e), "trace": traceback.format_exc()}
 

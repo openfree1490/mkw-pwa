@@ -4,9 +4,9 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 // DESIGN SYSTEM
 // ─────────────────────────────────────────────
 const C = {
-  bg:   '#0a0e1a', p1: '#0f1520', p2: '#141d2e',
-  b1:   '#1a2540', b2: '#243050',
-  tx:   '#8899bb', td: '#2a3a58', tb: '#ddeeff',
+  bg:   '#020408', p1: '#080d16', p2: '#0e1520',
+  b1:   '#1b2a40', b2: '#243050',
+  tx:   '#a0b4d0', td: '#4a5878', tb: '#dce8ff',
   g:    '#00ff88', r:  '#ff2a44', a:  '#ffcc00',
   bl:   '#00ccff', pu: '#a855f7', em: '#ff6b35',
   gd:   '#ffcc00',
@@ -210,7 +210,7 @@ function ChecklistPanel({ stock, breadth }) {
     {/* Progress */}
     <Panel style={{ padding: '14px 16px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <span style={{ fontFamily: fh, fontSize: 11, color: C.tb }}>Pre-Trade Checklist</span>
+        <span style={{ fontFamily: fh, fontSize: 13, color: C.tb }}>Pre-Trade Checklist</span>
         <span style={{ fontFamily: fm, fontSize: 13, fontWeight: 700, color: verdict[1],
           textShadow: `0 0 8px ${verdict[1]}60` }}>{passCount}/{totalItems}</span>
       </div>
@@ -442,7 +442,7 @@ function HomeTab({ watchlistData, breadthData, onSelect }) {
     {/* Market Triple-Check */}
     <Panel style={{ padding: '12px 14px' }} glow={allOk ? C.g : C.a}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-        <span style={{ fontFamily: fh, fontSize: 11, color: C.tb }}>Market Triple-Check</span>
+        <span style={{ fontFamily: fh, fontSize: 13, color: C.tb }}>Market Triple-Check</span>
         <span style={{ fontFamily: fm, fontSize: 10, fontWeight: 700, color: allOk ? C.g : C.a,
           textShadow: `0 0 8px ${allOk ? C.g : C.a}60` }}>
           {allOk ? '✓ ALL CLEAR' : '△ MIXED'}
@@ -472,13 +472,13 @@ function HomeTab({ watchlistData, breadthData, onSelect }) {
 
     {/* Convergence Zone */}
     {conv.length > 0 && <Panel style={{ padding: '12px 14px' }} glow={C.gd}>
-      <div style={{ fontFamily: fh, fontSize: 11, color: C.gd, marginBottom: 10,
+      <div style={{ fontFamily: fh, fontSize: 13, color: C.gd, marginBottom: 10,
         textShadow: `0 0 10px ${C.gd}60` }}>⚡ Full Convergence</div>
       {conv.map(s =>
         <div key={s.tk} onClick={() => onSelect(s)} style={{ background: C.p2, borderRadius: 8,
           padding: '10px 12px', marginBottom: 6, border: `1px solid ${C.gd}20`, cursor: 'pointer' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div><span style={{ fontFamily: fh, fontSize: 14, fontWeight: 700, color: C.tb }}>{s.tk}</span>
+            <div><span style={{ fontFamily: fh, fontSize: 19, fontWeight: 900, color: C.tb }}>{s.tk}</span>
               <span style={{ fontSize: 10, fontFamily: fm, color: C.td, marginLeft: 6 }}>${s.px}</span></div>
             <Bar score={s.conv.score} max={s.conv.max} />
           </div>
@@ -585,7 +585,7 @@ function WatchTab({ watchlistData, onSelect }) {
               borderBottom: i < items.length - 1 ? `1px solid ${C.b1}20` : 'none', cursor: 'pointer' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontFamily: fh, fontSize: 14, fontWeight: 700, color: mode === 'short' ? C.r : C.tb }}>{s.tk}</span>
+                  <span style={{ fontFamily: fh, fontSize: 19, fontWeight: 900, color: mode === 'short' ? C.r : C.tb }}>{s.tk}</span>
                   <span style={{ fontFamily: fm, fontSize: 10, color: C.td }}>${s.px}</span>
                 </div>
                 <Bar score={mode === 'long' ? s.conv?.score : s.shortConv?.score} max={22}
@@ -811,8 +811,15 @@ function BriefTab() {
     </Panel>
 
     {loading && <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner /></div>}
-    {error && <Panel style={{ padding: 16, border: `1px solid ${C.r}20` }}>
-      <div style={{ color: C.r, fontFamily: fb }}>Error loading brief: {error}</div>
+    {error && <Panel style={{ padding: 16, border: `1px solid ${C.a}20` }}>
+      <div style={{ color: C.a, fontFamily: fh, fontSize: 11, marginBottom: 8 }}>⚠ Brief Unavailable</div>
+      <div style={{ color: C.tx, fontFamily: fb, fontSize: 12, lineHeight: 1.6 }}>
+        The daily brief could not be loaded. To enable AI-generated briefs, add your{' '}
+        <span style={{ color: C.gd, fontFamily: fm }}>ANTHROPIC_API_KEY</span> in Railway → Variables tab.
+      </div>
+      <div style={{ marginTop: 10, color: C.td, fontFamily: fm, fontSize: 10 }}>
+        Error: {error}
+      </div>
     </Panel>}
     {data && <Panel style={{ padding: '14px 16px' }}>
       <div style={{ fontFamily: fb, fontSize: 13, color: C.tx, lineHeight: 2, whiteSpace: 'pre-wrap' }}>
@@ -820,7 +827,7 @@ function BriefTab() {
         {(data.content || '').split('\n').map((line, i) => {
           if (line.startsWith('## ')) return <div key={i} style={{ fontFamily: fh, fontSize: 13, color: C.gd,
             marginTop: 16, marginBottom: 6, textShadow: `0 0 8px ${C.gd}40` }}>{line.replace('## ','')}</div>
-          if (line.startsWith('### ')) return <div key={i} style={{ fontFamily: fh, fontSize: 11, color: C.bl,
+          if (line.startsWith('### ')) return <div key={i} style={{ fontFamily: fh, fontSize: 13, color: C.bl,
             marginTop: 10, marginBottom: 4 }}>{line.replace('### ','')}</div>
           if (line.startsWith('- ') || line.startsWith('• ')) return <div key={i} style={{ color: C.tx, paddingLeft: 12 }}>• {line.slice(2)}</div>
           if (line.startsWith('**') && line.endsWith('**')) return <div key={i} style={{ color: C.tb, fontWeight: 700 }}>{line.slice(2,-2)}</div>
@@ -863,7 +870,7 @@ function AnalyzeTab() {
   return <div style={{ padding: '12px 14px', paddingBottom: 90, display: 'flex', flexDirection: 'column', gap: 12 }}>
     {/* Search */}
     <Panel style={{ padding: '12px 14px' }}>
-      <div style={{ fontFamily: fh, fontSize: 11, color: C.gd, marginBottom: 10 }}>◈ MKW Analyzer</div>
+      <div style={{ fontFamily: fh, fontSize: 13, color: C.gd, marginBottom: 10 }}>◈ MKW Analyzer</div>
       <div style={{ display: 'flex', gap: 8 }}>
         <input
           ref={inputRef}
@@ -995,7 +1002,7 @@ function RiskTab({ threatsData }) {
 
   return <div style={{ padding: '12px 14px', paddingBottom: 90, display: 'flex', flexDirection: 'column', gap: 10 }}>
     <Panel style={{ padding: '12px 14px', border: `1px solid ${C.r}20` }}>
-      <div style={{ fontFamily: fh, fontSize: 11, color: C.r, marginBottom: 4 }}>Divergence Zone — Triple Exit</div>
+      <div style={{ fontFamily: fh, fontSize: 13, color: C.r, marginBottom: 4 }}>Divergence Zone — Triple Exit</div>
       <div style={{ fontFamily: fb, fontSize: 11, color: C.td }}>Where all 3 frameworks say EXIT. Weinstein S3/S4 + Template failing + Kell Red Light.</div>
     </Panel>
     {threats.length === 0 && <div style={{ padding: 30, textAlign: 'center', color: C.td, fontFamily: fb }}>Loading threat data…</div>}
@@ -1003,7 +1010,7 @@ function RiskTab({ threatsData }) {
       <Panel key={t.tk} style={{ overflow: 'hidden', border: `1px solid ${sel?.tk === t.tk ? C.r : C.b1}30` }}>
         <div onClick={() => setSel(sel?.tk === t.tk ? null : t)} style={{ padding: '12px 14px', cursor: 'pointer' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div><span style={{ fontFamily: fh, fontSize: 14, fontWeight: 700, color: C.r }}>{t.tk}</span>
+            <div><span style={{ fontFamily: fh, fontSize: 19, fontWeight: 900, color: C.r }}>{t.tk}</span>
               <span style={{ fontSize: 10, fontFamily: fm, color: C.td, marginLeft: 6 }}>{t.type}</span></div>
             <span style={{ fontFamily: fm, fontSize: 12, fontWeight: 700, color: C.r,
               padding: '2px 8px', background: '#2a0812', borderRadius: 4 }}>{t.sc}/10</span>
