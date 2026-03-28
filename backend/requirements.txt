@@ -3,8 +3,6 @@ uvicorn[standard]
 yfinance
 pandas
 numpy
-ta
 requests
 finnhub-python
-scipy
 anthropic
