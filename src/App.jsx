@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Component } from 'react'
 
 // ── GOOGLE FONTS ──────────────────────────────────────────────────────────
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;800;900&family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap"
@@ -1503,7 +1503,22 @@ const MORE_ITEMS = [
   { key: 'journal', label: 'JOURNAL' },
 ]
 
-export default function App() {
+class ErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { error: null } }
+  static getDerivedStateFromError(error) { return { error } }
+  render() {
+    if (this.state.error) return (
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#020408', color: '#ff2a44', padding: 30, textAlign: 'center', fontFamily: "'Rajdhani', sans-serif" }}>
+        <div style={{ fontFamily: "'Orbitron', monospace", fontWeight: 900, fontSize: 18, letterSpacing: 3, marginBottom: 12 }}>SYSTEM ERROR</div>
+        <div style={{ fontSize: 13, color: 'rgba(180,200,230,0.7)', marginBottom: 16, maxWidth: 320 }}>{String(this.state.error?.message || this.state.error)}</div>
+        <button onClick={() => { this.setState({ error: null }); window.location.reload() }} style={{ fontFamily: "'Orbitron', monospace", fontWeight: 700, fontSize: 11, letterSpacing: 2, color: '#00ccff', background: 'rgba(0,204,255,0.1)', border: '1px solid rgba(0,204,255,0.3)', borderRadius: 6, padding: '10px 24px', cursor: 'pointer' }}>RELOAD</button>
+      </div>
+    )
+    return this.props.children
+  }
+}
+
+function AppInner() {
   const [page, setPage] = useState('home')
   const [showMore, setShowMore] = useState(false)
 
@@ -1594,4 +1609,8 @@ export default function App() {
       </div>
     </div>
   )
+}
+
+export default function App() {
+  return <ErrorBoundary><AppInner /></ErrorBoundary>
 }

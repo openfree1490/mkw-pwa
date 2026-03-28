@@ -1215,6 +1215,66 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 async def global_exception_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"error": str(exc), "type": type(exc).__name__})
 
+def _normalize_stock(s: dict) -> dict:
+    """Flatten abbreviated backend fields into frontend-friendly shape."""
+    grade_obj = s.get("grade", {})
+    conv = s.get("conv", {})
+    kell = s.get("kell", {})
+    wein = s.get("wein", {})
+    mn = s.get("min", {})
+    vcp = s.get("vcp", {})
+    fund = s.get("fundamentals", {})
+    flat = {
+        "ticker": s.get("tk", ""),
+        "symbol": s.get("tk", ""),
+        "name": s.get("nm", ""),
+        "company": s.get("nm", ""),
+        "price": s.get("px", 0),
+        "zone": conv.get("zone", "WATCH"),
+        "convergence_score": conv.get("score", 0),
+        "score": conv.get("score", 0),
+        "grade": grade_obj.get("grade", "F") if isinstance(grade_obj, dict) else str(grade_obj),
+        "grade_score": grade_obj.get("totalScore", 0) if isinstance(grade_obj, dict) else 0,
+        "grade_detail": grade_obj if isinstance(grade_obj, dict) else {},
+        "tradeable": grade_obj.get("tradeable", False) if isinstance(grade_obj, dict) else False,
+        "stage": wein.get("stage", "?"),
+        "weinstein_stage": wein.get("stage", "?"),
+        "phase": kell.get("phase", "Unknown"),
+        "kell_light": kell.get("light", "gray"),
+        "rs": mn.get("rs", 50),
+        "template_score": mn.get("tplScore", 0),
+        "vcp_count": vcp.get("count", 0),
+        "pivot": mn.get("pivot") or vcp.get("pivot"),
+        # Returns data (both abbreviated and frontend-friendly names)
+        "dp": s.get("dp", 0), "wp": s.get("wp", 0), "mp": s.get("mp", 0),
+        "qp": s.get("qp", 0), "hp": s.get("hp", 0), "yp": s.get("yp", 0),
+        "day_change": s.get("dp", 0), "change_1d": s.get("dp", 0),
+        "week_change": s.get("wp", 0), "change_1w": s.get("wp", 0),
+        "month_change": s.get("mp", 0), "change_1m": s.get("mp", 0),
+        "kell_phase": kell.get("phase", "Unknown"),
+        "relative_strength": mn.get("rs", 50),
+        "minervini_score": mn.get("tplScore", 0),
+        "vcp_detected": vcp.get("count", 0) >= 2,
+        "vcp_contractions": vcp.get("count", 0),
+        "contractions": vcp.get("count", 0),
+        "setup": s.get("setup", ""),
+        "risk": s.get("risk", ""),
+        "flags": s.get("flags", []),
+        "sector": s.get("sector", fund.get("sector", "")),
+        "stopPrice": grade_obj.get("stopPrice") if isinstance(grade_obj, dict) else None,
+        "target1": grade_obj.get("target1") if isinstance(grade_obj, dict) else None,
+        "target2": grade_obj.get("target2") if isinstance(grade_obj, dict) else None,
+        "rrRatio": grade_obj.get("rrRatio", 0) if isinstance(grade_obj, dict) else 0,
+        # Preserve full nested data for deep analysis
+        "wein": wein, "min": mn, "kell": kell, "conv": conv,
+        "vcp": vcp, "fundamentals": fund,
+        "technicals": s.get("technicals", {}),
+        "srLevels": s.get("srLevels", []),
+        "shortConv": s.get("shortConv", {}),
+    }
+    return flat
+
+
 def _build_watchlist():
     spy_df = get_spy()
     if spy_df is None:
@@ -1227,9 +1287,9 @@ def _build_watchlist():
             return None
     with ThreadPoolExecutor(max_workers=5) as ex:
         results = list(ex.map(_fetch, WATCHLIST))
-    stocks = [r for r in results if r]
+    stocks = [_normalize_stock(r) for r in results if r]
     # Sort by grade score then convergence score
-    stocks.sort(key=lambda x: (x.get("grade", {}).get("totalScore", 0), x.get("conv", {}).get("score", 0)), reverse=True)
+    stocks.sort(key=lambda x: (x.get("grade_score", 0), x.get("convergence_score", 0)), reverse=True)
     return to_python({"stocks": stocks, "lastUpdated": datetime.utcnow().isoformat()})
 
 # ─────────────────────────────────────────────
@@ -1277,7 +1337,7 @@ def get_analyze(ticker: str):
     except Exception:
         pass
 
-    result = to_python(result)
+    result = to_python(_normalize_stock(result))
     cache_set(key, result)
     return result
 
@@ -1444,35 +1504,34 @@ def get_screener(
 
     for s in stocks:
         try:
-            rs_val = s.get("min", {}).get("rs", 50)
+            rs_val = s.get("rs", s.get("min", {}).get("rs", 50))
             if not (rs_min <= rs_val <= rs_max): continue
 
             if stage:
-                s_stage = s.get("wein", {}).get("stage", "")
+                s_stage = s.get("stage", s.get("wein", {}).get("stage", ""))
                 if stage == "2":
                     if s_stage not in ("2A", "2B"): continue
                 elif stage == "4":
                     if s_stage not in ("4A", "4B"): continue
                 elif not s_stage.startswith(stage): continue
 
-            if s.get("min", {}).get("tplScore", 0) < template_min: continue
+            if s.get("template_score", s.get("min", {}).get("tplScore", 0)) < template_min: continue
             if sector and sector.lower() not in (s.get("sector", "") or "").lower(): continue
-            if vcp and s.get("vcp", {}).get("count", 0) < 2: continue
+            if vcp and s.get("vcp_count", s.get("vcp", {}).get("count", 0)) < 2: continue
 
             if zone:
-                s_zone = s.get("shortConv" if short_mode else "conv", {}).get("zone", "")
+                s_zone = s.get("zone", s.get("shortConv" if short_mode else "conv", {}).get("zone", ""))
                 if s_zone != zone: continue
 
             if min_grade and min_grade in grade_thresholds:
-                grade_score = s.get("grade", {}).get("totalScore", 0)
+                grade_score = s.get("grade_score", s.get("grade", {}).get("totalScore", 0) if isinstance(s.get("grade"), dict) else 0)
                 if grade_score < grade_thresholds[min_grade]: continue
 
             filtered.append(s)
         except Exception:
             continue
 
-    sort_key = "shortConv" if short_mode else "conv"
-    filtered.sort(key=lambda x: (x.get("grade", {}).get("totalScore", 0), x.get(sort_key, {}).get("score", 0)), reverse=True)
+    filtered.sort(key=lambda x: (x.get("grade_score", 0), x.get("convergence_score", x.get("score", 0))), reverse=True)
 
     return to_python({
         "stocks": filtered, "total": len(filtered),
