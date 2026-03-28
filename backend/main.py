@@ -12,7 +12,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pandas as pd
-import yfinance as yf
 import requests
 from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +21,10 @@ import traceback
 
 # Local modules
 sys.path.insert(0, os.path.dirname(__file__))
+import data_router as router
+import finra_short_volume as finra
+import macro_engine as macro
+import polygon_client as poly
 from options_engine import (
     full_options_analysis, calc_greeks, black_scholes_price,
     calc_historical_volatility, calc_iv_from_options_chain,
@@ -41,8 +44,10 @@ log = logging.getLogger("mkw")
 # ─────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────
-FINNHUB_KEY = os.getenv("FINNHUB_API_KEY", "")
-CLAUDE_KEY  = os.getenv("ANTHROPIC_API_KEY", "")
+FINNHUB_KEY  = os.getenv("FINNHUB_API_KEY", "")
+CLAUDE_KEY   = os.getenv("ANTHROPIC_API_KEY", "")
+POLYGON_KEY  = os.getenv("POLYGON_API_KEY", "")
+FRED_KEY     = os.getenv("FRED_API_KEY", "")
 CACHE_PRICES     = 300    # 5 min
 CACHE_TECHNICALS = 1800   # 30 min
 CACHE_FUNDAMENT  = 7200   # 2 hrs
@@ -54,14 +59,8 @@ CACHE_EARNINGS   = 3600
 CACHE_BRIEF      = 1800
 CACHE_OPTIONS    = 600    # 10 min
 
-WATCHLIST = [
-    "NVDA","AVGO","TSLA","AAPL","MSFT","GOOGL","META","AMZN","AMD","CRM",
-    "PLTR","CRWD","PANW","NET","DDOG","APP","AXON","COIN","MELI","SHOP",
-    "SNOW","NOW","ADBE","ORCL","TSM","ASML","KLAC","LRCX","AMAT","MRVL",
-    "LLY","UNH","ISRG","VRTX","GE","CAT","DE","LMT","XOM","COST",
-    "WMT","HD","V","MA","GS","JPM","TSEM","RKLB","DELL","CF",
-    "GKOS","CELH","DUOL","HIMS","TOST","DECK","CMG","LULU","ON","MPWR",
-]
+# Static fallback universe (used when Polygon dynamic universe unavailable)
+WATCHLIST = router.STATIC_UNIVERSE
 THREATS_LIST = ["CVNA","HIMS","SMCI","BYND","SNAP"]
 
 SECTOR_ETFS  = ["XLE","XLK","XLF","XLV","XLI","XLY","XLP","XLB","XLRE","XLU","XLC"]
@@ -93,6 +92,20 @@ def save_positions(pos: dict):
         log.warning(f"save_positions: {e}")
 
 _positions: dict = {}
+
+_macro_cache: dict = {}  # Cached macro data from FRED
+
+
+def _recalc_zone(score: int, max_score: int = 23) -> str:
+    """Recalculate convergence zone with updated thresholds (max 23 with FINRA)."""
+    if score >= 21:
+        return "CONVERGENCE"
+    if score >= 16:
+        return "SECONDARY"
+    if score >= 11:
+        return "BUILDING"
+    return "WATCH"
+
 
 # ─────────────────────────────────────────────
 # NUMPY SERIALIZATION
@@ -133,98 +146,13 @@ def cache_set(key: str, val):
     _cache_ts[key] = time.time()
 
 # ─────────────────────────────────────────────
-# DATA FETCHING
+# DATA FETCHING (via data_router: Polygon → yfinance)
 # ─────────────────────────────────────────────
 def fetch_ohlcv(ticker: str, period: str = "2y") -> Optional[pd.DataFrame]:
-    try:
-        t = yf.Ticker(ticker)
-        df = t.history(period=period, auto_adjust=True)
-        if df.empty or len(df) < 60:
-            return None
-        df = df[["Open","High","Low","Close","Volume"]].copy()
-        df.index = pd.to_datetime(df.index)
-        return df
-    except Exception as e:
-        log.warning(f"OHLCV fetch failed for {ticker}: {e}")
-        return None
+    return router.fetch_ohlcv(ticker, period)
 
 def fetch_fundamentals(ticker: str) -> dict:
-    try:
-        t = yf.Ticker(ticker)
-        info = t.info or {}
-        fin = t.financials
-        eps_growth, rev_growth, margins_exp = 0, 0, False
-        try:
-            if fin is not None and not fin.empty:
-                ni = fin.loc["Net Income"] if "Net Income" in fin.index else None
-                rev = fin.loc["Total Revenue"] if "Total Revenue" in fin.index else None
-                gp  = fin.loc["Gross Profit"] if "Gross Profit" in fin.index else None
-                if ni is not None and len(ni) >= 2 and ni.iloc[1] != 0:
-                    eps_growth = int((ni.iloc[0] - ni.iloc[1]) / abs(ni.iloc[1]) * 100)
-                if rev is not None and len(rev) >= 2 and rev.iloc[1] != 0:
-                    rev_growth = int((rev.iloc[0] - rev.iloc[1]) / abs(rev.iloc[1]) * 100)
-                if gp is not None and rev is not None and len(gp) >= 2 and len(rev) >= 2:
-                    m0 = gp.iloc[0] / rev.iloc[0] if rev.iloc[0] else 0
-                    m1 = gp.iloc[1] / rev.iloc[1] if rev.iloc[1] else 0
-                    margins_exp = m0 > m1
-        except Exception:
-            pass
-
-        gross_margins = info.get("grossMargins", 0) or 0
-        roe = info.get("returnOnEquity", 0) or 0
-        roic = info.get("returnOnCapital", 0) or info.get("returnOnEquity", 0) or 0
-        fcf = info.get("freeCashflow", 0) or 0
-        operating_margins = info.get("operatingMargins", 0) or 0
-        debt_equity = info.get("debtToEquity", 0) or 0
-        inst_pct = info.get("heldPercentInstitutions", 0) or 0
-
-        next_earnings = ""
-        try:
-            cal = t.calendar
-            if cal is not None:
-                if isinstance(cal, dict):
-                    earnings_date = cal.get("Earnings Date", None)
-                    if earnings_date is not None:
-                        if hasattr(earnings_date, '__iter__') and not isinstance(earnings_date, str):
-                            earnings_date = list(earnings_date)
-                            if earnings_date:
-                                next_earnings = str(earnings_date[0])[:10]
-                        else:
-                            next_earnings = str(earnings_date)[:10]
-                elif isinstance(cal, pd.DataFrame):
-                    if "Earnings Date" in cal.index:
-                        val = cal.loc["Earnings Date"].iloc[0] if not cal.loc["Earnings Date"].empty else ""
-                        next_earnings = str(val)[:10] if val else ""
-        except Exception:
-            pass
-
-        return {
-            "eps": eps_growth,
-            "rev": rev_growth,
-            "marginsExpanding": margins_exp,
-            "marketCap": info.get("marketCap", 0),
-            "name": info.get("longName", ticker),
-            "grossMargins": round(float(gross_margins), 4) if gross_margins else 0,
-            "operatingMargins": round(float(operating_margins), 4) if operating_margins else 0,
-            "returnOnEquity": round(float(roe), 4) if roe else 0,
-            "returnOnCapital": round(float(roic), 4) if roic else 0,
-            "freeCashflow": int(fcf) if fcf else 0,
-            "debtToEquity": round(float(debt_equity), 2) if debt_equity else 0,
-            "trailingPE": round(float(info.get("trailingPE", 0) or 0), 2) or None,
-            "forwardPE": round(float(info.get("forwardPE", 0) or 0), 2) or None,
-            "institutionalOwnershipPct": round(float(inst_pct) * 100, 1) if inst_pct else 0,
-            "nextEarningsDate": next_earnings,
-            "sector": info.get("sector", ""),
-            "industry": info.get("industry", ""),
-        }
-    except Exception as e:
-        log.warning(f"Fundamentals fetch failed for {ticker}: {e}")
-        return {
-            "eps": 0, "rev": 0, "marginsExpanding": False, "marketCap": 0, "name": ticker,
-            "grossMargins": 0, "operatingMargins": 0, "returnOnEquity": 0, "returnOnCapital": 0,
-            "freeCashflow": 0, "debtToEquity": 0, "trailingPE": None, "forwardPE": None,
-            "institutionalOwnershipPct": 0, "nextEarningsDate": "", "sector": "", "industry": "",
-        }
+    return router.fetch_fundamentals(ticker)
 
 def finnhub_get(path: str, params: dict = {}) -> dict:
     if not FINNHUB_KEY:
@@ -790,14 +718,37 @@ def analyze_ticker(ticker: str, spy_df: pd.DataFrame, mkt: dict) -> Optional[dic
         price = float(df["Close"].iloc[-1])
         vol_ratio = technicals.get("volumeProfile", {}).get("ratio", 1.0)
 
+        # FINRA short volume
+        finra_data = {}
+        try:
+            finra_data = finra.analyze_ticker(ticker)
+            svr = finra_data.get("svr_today")
+            # Convergence adjustment: +1 if SVR < 35% (longs) or > 55% (shorts)
+            finra_adj = finra.convergence_adjustment(ticker, is_short=wein["stage"] in ("3", "4A", "4B"))
+            conv_s += finra_adj
+            if finra_adj > 0:
+                conv_z = _recalc_zone(conv_s, 23)
+        except Exception:
+            svr = None
+
+        # Macro context
+        macro_data = _macro_cache or {}
+        macro_sc = macro_data.get("score", {}).get("score", 5)
+        events = macro_data.get("events", [])
+        event_imminent = any(e.get("imminent") for e in events)
+        sector_aligned = True  # Default; could check sector-specific context
+
         # Quick grade (without full options data for speed)
         is_short = wein["stage"] in ("3", "4A", "4B")
         quick_grade = grade_trade(
-            conv_score=conv_s, conv_max=22, conv_zone=conv_z,
+            conv_score=conv_s, conv_max=23, conv_zone=conv_z,
             wein_stage=wein["stage"], tpl_score=tpl_score, rs=rs,
             phase=phase, ema_d=ema_d, ema_w=ema_w, ema_m=ema_m,
             vcp_pivot=vcp.get("pivot"), current_price=price,
             vol_ratio=vol_ratio, is_short=is_short,
+            short_vol_ratio=svr / 100 if svr else 0.5,
+            macro_score=macro_sc, event_imminent=event_imminent,
+            sector_aligned=sector_aligned,
         )
 
         return {
@@ -824,7 +775,8 @@ def analyze_ticker(ticker: str, spy_df: pd.DataFrame, mkt: dict) -> Optional[dic
                 "ema10v": ema10v, "ema20v": ema20v, "ema50v": ema50v,
                 "ema100v": ema100v, "ema200v": ema200v,
             },
-            "conv": {"score": conv_s, "max": 22, "zone": conv_z},
+            "conv": {"score": conv_s, "max": 23, "zone": conv_z},
+            "finra": finra_data,
             "shortConv": {
                 "score": short_s, "max": 22, "zone": short_z,
                 "invTpl": inv_criteria, "invScore": inv_score,
@@ -1106,6 +1058,24 @@ def generate_programmatic_brief(watchlist_data, breadth, threats):
 def generate_daily_brief(watchlist_data, breadth, threats):
     tier1 = generate_programmatic_brief(watchlist_data, breadth, threats)
 
+    # Add macro section to tier1
+    macro_data = _macro_cache or {}
+    if macro_data.get("score"):
+        tier1["macro"] = {
+            "score": macro_data["score"],
+            "rates": macro_data.get("rates", {}),
+            "events": macro_data.get("events", [])[:5],
+            "sizing_modifier": macro_data.get("sizing_modifier", 0.75),
+        }
+
+    # Add FINRA short volume intelligence
+    top_short = finra.top_short_volume(list(WATCHLIST), n=5)
+    if top_short:
+        tier1["shortVolumeIntel"] = [
+            {"ticker": s["ticker"], "svr": s["svr_today"], "signal": s["signal"], "color": s["color"]}
+            for s in top_short if s.get("svr_today") is not None
+        ]
+
     if not CLAUDE_KEY:
         return {"tier1": tier1, "tier2": None, "note": "Set ANTHROPIC_API_KEY for AI-enhanced brief"}
 
@@ -1113,15 +1083,27 @@ def generate_daily_brief(watchlist_data, breadth, threats):
         import anthropic
         client = anthropic.Anthropic(api_key=CLAUDE_KEY)
 
-        conv = [s for s in watchlist_data if s["conv"]["zone"] == "CONVERGENCE"]
-        sec = [s for s in watchlist_data if s["conv"]["zone"] == "SECONDARY"]
-        shorts = [s for s in watchlist_data if s["shortConv"]["zone"] in ("SHORT_CONVERGENCE","SHORT_SECONDARY")]
+        # Use normalized flat fields
+        conv = [s for s in watchlist_data if (s.get("zone") or "").upper() == "CONVERGENCE"]
+        sec = [s for s in watchlist_data if (s.get("zone") or "").upper() == "SECONDARY"]
+        shorts = [s for s in watchlist_data if "SHORT" in (s.get("zone") or "").upper()]
 
-        context = f"""MARKET: SPX Stage {breadth.get('spxStage')}, {breadth.get('spxEma')} 20 EMA, VIX {breadth.get('vix')}, ~{breadth.get('tplCount')} TPL qualifiers
-CONVERGENCE ({len(conv)}): {json.dumps([{"tk":s["tk"],"grade":s.get("grade",{}).get("grade","?"),"score":s["conv"]["score"],"rs":s["min"]["rs"],"phase":s["kell"]["phase"]} for s in conv])}
-SECONDARY ({len(sec)}): {json.dumps([{"tk":s["tk"],"score":s["conv"]["score"]} for s in sec])}
-SHORTS ({len(shorts)}): {json.dumps([{"tk":s["tk"],"shortScore":s["shortConv"]["score"]} for s in shorts])}
-THREATS: {json.dumps([{"tk":t["tk"],"type":t["type"],"score":t["sc"]} for t in threats])}"""
+        macro_ctx = ""
+        if macro_data.get("score"):
+            ms = macro_data["score"]
+            events = macro_data.get("events", [])
+            event_str = ", ".join([f"{e['name']} in {e['days_until']}d" for e in events[:3]])
+            macro_ctx = f"\nMACRO: Score {ms['score']}/10 ({ms['regime']}), sizing {ms.get('sizing', 'standard')}. Events: {event_str or 'none upcoming'}"
+
+        finra_ctx = ""
+        if top_short:
+            finra_ctx = f"\nSHORT VOLUME: Top SVR — " + ", ".join([f"{s['ticker']} {s['svr_today']}%" for s in top_short[:5]])
+
+        context = f"""MARKET: SPX Stage {breadth.get('spxStage')}, {breadth.get('spxEma')} 20 EMA, VIX {breadth.get('vix')}, ~{breadth.get('tplCount')} TPL qualifiers{macro_ctx}{finra_ctx}
+CONVERGENCE ({len(conv)}): {json.dumps([{"tk":s.get("ticker","?"),"grade":s.get("grade","?"),"score":s.get("convergence_score",0),"rs":s.get("rs",0),"phase":s.get("phase","?")} for s in conv])}
+SECONDARY ({len(sec)}): {json.dumps([{"tk":s.get("ticker","?"),"score":s.get("convergence_score",0)} for s in sec])}
+SHORTS ({len(shorts)}): {json.dumps([{"tk":s.get("ticker","?"),"shortScore":s.get("shortConv",{}).get("score",0)} for s in shorts])}
+THREATS: {json.dumps([{"tk":t.get("tk","?"),"type":t.get("type","?"),"score":t.get("sc",0)} for t in threats])}"""
 
         msg = client.messages.create(
             model="claude-sonnet-4-20250514",
@@ -1183,6 +1165,18 @@ SCREENER_PRESETS = {
         "description": "Every stock sorted by convergence score",
         "filters": {},
     },
+    "short_squeeze": {
+        "name": "Short Squeeze Candidates",
+        "description": "SVR > 55% + rising + resilient price — potential squeeze setups",
+        "filters": {},
+        "special": "short_squeeze",
+    },
+    "distribution": {
+        "name": "Distribution Detection",
+        "description": "SVR spike + rising trend — potential institutional selling",
+        "filters": {},
+        "special": "distribution",
+    },
 }
 
 # ─────────────────────────────────────────────
@@ -1198,14 +1192,36 @@ def _warmup():
     except Exception as e:
         log.warning(f"Warmup failed: {e}")
 
+def _warmup_data_sources():
+    """Initialize FINRA and FRED data in background."""
+    global _macro_cache
+    try:
+        # FINRA: download recent short volume data
+        universe = list(WATCHLIST) + THREATS_LIST
+        finra.update_history(universe)
+        log.info("FINRA short volume data loaded")
+    except Exception as e:
+        log.warning(f"FINRA warmup failed: {e}")
+
+    try:
+        # FRED: fetch macro data
+        _macro_cache = macro.get_full_macro()
+        if _macro_cache.get("score"):
+            log.info(f"Macro score: {_macro_cache['score'].get('score', '?')}/10 ({_macro_cache['score'].get('regime', '?')})")
+    except Exception as e:
+        log.warning(f"FRED warmup failed: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _positions
     _positions = load_positions()
     log.info(f"Loaded {len(_positions)} positions")
+    log.info(f"Data sources: Polygon={'YES' if POLYGON_KEY else 'NO'} | FRED={'YES' if FRED_KEY else 'NO'} | Finnhub={'YES' if FINNHUB_KEY else 'NO'}")
     get_spy()
     import threading
     threading.Thread(target=_warmup, daemon=True).start()
+    threading.Thread(target=_warmup_data_sources, daemon=True).start()
     yield
 
 app = FastAPI(title="MKW Command Center v2.0", lifespan=lifespan)
@@ -1271,6 +1287,7 @@ def _normalize_stock(s: dict) -> dict:
         "technicals": s.get("technicals", {}),
         "srLevels": s.get("srLevels", []),
         "shortConv": s.get("shortConv", {}),
+        "finra": s.get("finra", {}),
     }
     return flat
 
@@ -1298,7 +1315,72 @@ def _build_watchlist():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "2.0", "finnhub": bool(FINNHUB_KEY), "claude": bool(CLAUDE_KEY), "positions": len(_positions)}
+    return {
+        "status": "ok", "version": "2.1",
+        "polygon": bool(POLYGON_KEY), "finnhub": bool(FINNHUB_KEY),
+        "claude": bool(CLAUDE_KEY), "fred": bool(FRED_KEY),
+        "positions": len(_positions),
+    }
+
+
+@app.get("/api/data-status")
+def data_status():
+    """Data source status for frontend status bar."""
+    status = router.get_status()
+    # Add FINRA status
+    finra_hist = finra.load_history()
+    status["finra"]["data_tickers"] = len(finra_hist)
+    status["finra"]["ok"] = len(finra_hist) > 0
+    return status
+
+
+@app.get("/api/macro")
+def get_macro():
+    """Full macro intelligence dashboard."""
+    global _macro_cache
+    if _macro_cache and _macro_cache.get("series"):
+        return to_python(_macro_cache)
+    # Fetch fresh
+    _macro_cache = macro.get_full_macro()
+    return to_python(_macro_cache)
+
+
+@app.get("/api/macro/events")
+def get_macro_events():
+    """Upcoming economic events."""
+    return to_python({"events": macro.get_upcoming_events(14)})
+
+
+@app.get("/api/finra/top-short")
+def get_top_short():
+    """Top 10 highest SVR in universe today."""
+    universe = list(WATCHLIST) + THREATS_LIST
+    result = finra.top_short_volume(universe, n=10)
+    return to_python({"stocks": result})
+
+
+@app.get("/api/finra/{ticker}")
+def get_finra_ticker(ticker: str):
+    """Full SVR data + 20-day history for a ticker."""
+    result = finra.analyze_ticker(ticker.upper())
+    return to_python(result)
+
+
+@app.get("/api/finra/screens/squeeze")
+def get_squeeze_candidates():
+    """Short squeeze candidates."""
+    universe = list(WATCHLIST)
+    result = finra.short_squeeze_candidates(universe)
+    return to_python({"stocks": result, "total": len(result)})
+
+
+@app.get("/api/finra/screens/distribution")
+def get_distribution_detection():
+    """Distribution detection signals."""
+    universe = list(WATCHLIST)
+    result = finra.distribution_detection(universe)
+    return to_python({"stocks": result, "total": len(result)})
+
 
 @app.get("/api/watchlist")
 def get_watchlist():
@@ -1350,7 +1432,6 @@ def get_options_analysis(ticker: str):
     if cached: return cached
 
     try:
-        t = yf.Ticker(ticker)
         df = fetch_ohlcv(ticker, "2y")
         if df is None:
             raise HTTPException(404, f"No data for {ticker}")
@@ -1369,14 +1450,58 @@ def get_options_analysis(ticker: str):
         fund = fetch_fundamentals(ticker)
         conv_s, conv_z = convergence_score(wein, tpl_score, rs, phase, vcp, mkt, fund, df)
 
-        # Full options analysis
-        result = full_options_analysis(t, df, spot, conv_z, phase, wein["stage"], vcp.get("pivot"))
+        # Try Polygon options data first, fall back to yfinance
+        opts_data = router.fetch_options_data(ticker, spot)
+
+        if opts_data.get("source") == "polygon" and opts_data.get("iv_analysis"):
+            # Use Polygon real data
+            result = {
+                "ticker": ticker,
+                "spot": spot,
+                "iv": opts_data["iv_analysis"],
+                "expectedMove": calc_expected_move(df, opts_data["iv_analysis"].get("currentIV", 0.3), spot),
+                "strategy": select_strategy(
+                    opts_data["iv_analysis"].get("ivRank", 50),
+                    conv_z, phase, wein["stage"],
+                ),
+                "chainSnapshot": [],
+                "source": "polygon",
+            }
+            # Build chain snapshot from Polygon data
+            snapshot = opts_data.get("snapshot", {})
+            if snapshot:
+                for exp in snapshot.get("expirations", [])[:4]:
+                    exp_calls = [c for c in snapshot.get("calls", []) if c["expiration"] == exp]
+                    exp_puts = [p for p in snapshot.get("puts", []) if p["expiration"] == exp]
+                    from datetime import datetime as dt
+                    try:
+                        dte = (dt.strptime(exp, "%Y-%m-%d").date() - dt.now().date()).days
+                    except Exception:
+                        dte = 30
+                    # Filter near ATM
+                    near_calls = sorted([c for c in exp_calls if abs(c["strike"] / spot - 1) < 0.15], key=lambda c: c["strike"])
+                    near_puts = sorted([p for p in exp_puts if abs(p["strike"] / spot - 1) < 0.15], key=lambda p: p["strike"])
+                    result["chainSnapshot"].append({
+                        "expiration": exp, "dte": dte,
+                        "calls": near_calls[:10], "puts": near_puts[:10],
+                    })
+        else:
+            # Fallback: yfinance via options_engine
+            import yfinance as yf
+            t = yf.Ticker(ticker)
+            result = full_options_analysis(t, df, spot, conv_z, phase, wein["stage"], vcp.get("pivot"))
+
+        # Add FINRA short volume context
+        finra_data = finra.analyze_ticker(ticker)
+        if finra_data.get("svr_today") is not None:
+            result["shortVolume"] = finra_data
 
         # Add expected move breakeven comparison
         if result.get("chainSnapshot"):
             for snap in result["chainSnapshot"]:
                 for opt in snap.get("calls", []):
-                    if abs(opt.get("greeks", {}).get("delta", 0) - 0.5) < 0.15:
+                    delta = opt.get("delta", opt.get("greeks", {}).get("delta", 0))
+                    if abs(delta - 0.5) < 0.15:
                         be_pct = opt.get("breakevenPct", 5)
                         comparison = compare_move_to_breakeven(result.get("expectedMove", {}), be_pct, snap.get("dte", 30))
                         result["breakevenComparison"] = comparison
@@ -1401,7 +1526,6 @@ def get_trade_ideas(ticker: str):
     if cached: return cached
 
     try:
-        t = yf.Ticker(ticker)
         df = fetch_ohlcv(ticker, "2y")
         if df is None:
             raise HTTPException(404, f"No data for {ticker}")
@@ -1420,11 +1544,35 @@ def get_trade_ideas(ticker: str):
         conv_s, conv_z = convergence_score(wein, tpl_score, rs, phase, vcp, mkt, fund, df)
         is_short = wein["stage"] in ("3", "4A", "4B")
 
-        # Get options chain
-        chain = build_options_snapshot(t, spot, "bearish" if is_short else "bullish")
+        # Get options chain (Polygon → yfinance)
+        opts_data = router.fetch_options_data(ticker, spot)
+        chain = []
+        iv_data = {}
 
-        # Get IV data
-        iv_data = calc_iv_from_options_chain(t)
+        if opts_data.get("source") == "polygon" and opts_data.get("snapshot"):
+            # Use Polygon data
+            iv_data = opts_data.get("iv_analysis", {})
+            snapshot = opts_data["snapshot"]
+            for exp in snapshot.get("expirations", [])[:4]:
+                exp_calls = [c for c in snapshot.get("calls", []) if c["expiration"] == exp]
+                exp_puts = [p for p in snapshot.get("puts", []) if p["expiration"] == exp]
+                near_calls = sorted([c for c in exp_calls if abs(c["strike"] / spot - 1) < 0.15], key=lambda c: c["strike"])[:8]
+                near_puts = sorted([p for p in exp_puts if abs(p["strike"] / spot - 1) < 0.15], key=lambda p: p["strike"])[:8]
+                from datetime import datetime as dt
+                try:
+                    dte = (dt.strptime(exp, "%Y-%m-%d").date() - dt.now().date()).days
+                except Exception:
+                    dte = 30
+                chain.append({"expiration": exp, "dte": dte, "calls": near_calls, "puts": near_puts})
+        elif opts_data.get("yf_ticker"):
+            # Fallback: yfinance
+            chain = build_options_snapshot(opts_data["yf_ticker"], spot, "bearish" if is_short else "bullish")
+            iv_data = calc_iv_from_options_chain(opts_data["yf_ticker"])
+        else:
+            import yfinance as yf
+            t = yf.Ticker(ticker)
+            chain = build_options_snapshot(t, spot, "bearish" if is_short else "bullish")
+            iv_data = calc_iv_from_options_chain(t)
 
         # Volume ratio
         technicals = calc_technicals(df)
@@ -1433,7 +1581,7 @@ def get_trade_ideas(ticker: str):
         ideas = generate_trade_ideas(
             ticker=ticker, spot=spot, chain_snapshot=chain,
             wein=wein, tpl_score=tpl_score, rs=rs, phase=phase,
-            vcp=vcp, conv_zone=conv_z, conv_score=conv_s, conv_max=22,
+            vcp=vcp, conv_zone=conv_z, conv_score=conv_s, conv_max=23,
             ema_d=ema_d, ema_w=ema_w, ema_m=ema_m,
             fundamentals=fund, iv_data=iv_data,
             vol_ratio=vol_ratio, is_short=is_short,

@@ -66,6 +66,45 @@ const Scanline = () => (
   }} />
 )
 
+const DataStatusBar = () => {
+  const [status, setStatus] = useState(null)
+  const [expanded, setExpanded] = useState(false)
+  useEffect(() => {
+    api('/api/data-status').then(setStatus).catch(() => {})
+    const interval = setInterval(() => api('/api/data-status').then(setStatus).catch(() => {}), 60000)
+    return () => clearInterval(interval)
+  }, [])
+  if (!status) return null
+  const q = status.quality || 'BASIC'
+  const qColor = q === 'STANDARD' ? C.green : C.gold
+  return (
+    <div>
+      <div onClick={() => setExpanded(!expanded)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '3px 8px', background: C.bg, borderBottom: `1px solid ${C.border}22`, cursor: 'pointer' }}>
+        <span style={{ fontFamily: FM, fontSize: 9, color: status.polygon?.connected ? C.green : C.textDim }}>[POLY: {status.polygon?.connected ? 'OK' : 'OFF'}]</span>
+        <span style={{ fontFamily: FM, fontSize: 9, color: status.finra?.ok ? C.green : C.textDim }}>[FINRA: {status.finra?.ok ? 'FRESH' : 'PENDING'}]</span>
+        <span style={{ fontFamily: FM, fontSize: 9, color: status.fred?.connected ? C.green : C.textDim }}>[FRED: {status.fred?.connected ? 'OK' : 'OFF'}]</span>
+        <span style={{ fontFamily: FM, fontSize: 9, color: qColor }}>{q}</span>
+      </div>
+      {expanded && (
+        <div style={{ padding: 10, background: C.panel, borderBottom: `1px solid ${C.border}`, animation: 'fadeIn 0.15s ease' }}>
+          <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim, marginBottom: 6 }}>DATA SOURCES</div>
+          {[
+            { name: 'Polygon.io', key: 'polygon', detail: status.polygon?.connected ? 'Connected — primary data' : 'Not configured' },
+            { name: 'FINRA', key: 'finra', detail: status.finra?.ok ? `${status.finra.data_tickers || 0} tickers tracked` : 'Pending download' },
+            { name: 'FRED', key: 'fred', detail: status.fred?.connected ? 'Connected — macro data' : 'Not configured' },
+            { name: 'yfinance', key: 'yfinance', detail: 'Fallback active' },
+          ].map(s => (
+            <div key={s.key} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: `1px solid ${C.border}22` }}>
+              <span style={{ fontFamily: FM, fontSize: 10, color: C.textBright }}>{s.name}</span>
+              <span style={{ fontFamily: FM, fontSize: 10, color: (status[s.key]?.ok || status[s.key]?.connected) ? C.green : C.textDim }}>{s.detail}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 const Loading = ({ text = 'SCANNING...' }) => (
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40, flexDirection: 'column', gap: 12 }}>
     <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 12, letterSpacing: 3, color: C.blue, animation: 'pulse 1.5s infinite', textShadow: glow(C.blue, 8) }}>{text}</div>
@@ -238,6 +277,7 @@ function HomePage() {
   const { data: watchlist, loading: wl, error: we, reload: wr } = useFetch('/api/watchlist')
   const { data: breadth, loading: bl, error: be } = useFetch('/api/breadth')
   const { data: threats } = useFetch('/api/threats')
+  const { data: macroData } = useFetch('/api/macro')
 
   if (wl || bl) return <Loading />
   if (we) return <ErrorMsg msg={we} onRetry={wr} />
@@ -299,6 +339,43 @@ function HomePage() {
         </div>
       </Panel>
 
+      {/* Macro Backdrop */}
+      {macroData?.score && (
+        <Panel borderColor={macroData.score.color === 'green' ? C.green : macroData.score.color === 'red' ? C.red : macroData.score.color === 'orange' ? C.gold : C.border}>
+          <SectionHeader title="MACRO BACKDROP" right={<Mono size={11} color={macroData.score.color === 'green' ? C.green : macroData.score.color === 'red' ? C.red : C.gold}>{macroData.score.regime}</Mono>} />
+          <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim }}>MACRO SCORE</div>
+                <Mono size={20} color={macroData.score.color === 'green' ? C.green : macroData.score.color === 'red' ? C.red : C.gold}>{macroData.score.score}/10</Mono>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim }}>SIZING</div>
+                <Mono size={11} color={C.text}>{macroData.score.sizing}</Mono>
+              </div>
+            </div>
+            {macroData.rates && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+                {macroData.rates.ten_year != null && <div style={{ background: C.raised, borderRadius: 4, padding: 6, textAlign: 'center' }}><div style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1, color: C.textDim }}>10Y</div><Mono size={12}>{Number(macroData.rates.ten_year).toFixed(2)}%</Mono></div>}
+                {macroData.rates.two_year != null && <div style={{ background: C.raised, borderRadius: 4, padding: 6, textAlign: 'center' }}><div style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1, color: C.textDim }}>2Y</div><Mono size={12}>{Number(macroData.rates.two_year).toFixed(2)}%</Mono></div>}
+                {macroData.rates.yield_curve != null && <div style={{ background: C.raised, borderRadius: 4, padding: 6, textAlign: 'center' }}><div style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1, color: C.textDim }}>CURVE</div><Mono size={12} color={Number(macroData.rates.yield_curve) > 0 ? C.green : C.red}>{Number(macroData.rates.yield_curve).toFixed(2)}</Mono></div>}
+              </div>
+            )}
+            {macroData.events && macroData.events.length > 0 && (
+              <div>
+                <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 2, color: C.textDim, marginBottom: 4 }}>UPCOMING EVENTS</div>
+                {macroData.events.slice(0, 3).map((e, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
+                    <Mono size={10} color={e.imminent ? C.red : C.text}>{e.name}</Mono>
+                    <Mono size={10} color={e.imminent ? C.red : C.textDim}>{e.days_until === 0 ? 'TODAY' : e.days_until === 1 ? 'TOMORROW' : `${e.days_until}d`}</Mono>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Panel>
+      )}
+
       {/* No AAA Banner */}
       {!hasAAA && (
         <div style={{ background: `${C.gold}11`, border: `1px solid ${C.gold}44`, borderRadius: 8, padding: 14, textAlign: 'center' }}>
@@ -321,7 +398,7 @@ function HomePage() {
                     <span style={{ fontFamily: FO, fontWeight: 900, fontSize: 13, color: C.textBright }}>{s.ticker || s.symbol}</span>
                     <GradeBadge grade={s.grade} size={11} />
                   </div>
-                  <Mono size={11} color={color}>{s.convergence_score ?? s.score ?? '—'}/22</Mono>
+                  <Mono size={11} color={color}>{s.convergence_score ?? s.score ?? '—'}/23</Mono>
                 </div>
               ))}
             </div>
@@ -343,7 +420,7 @@ function HomePage() {
             </div>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               <div><div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim }}>PRICE</div><Mono size={14}>${topSetup.price != null ? Number(topSetup.price).toFixed(2) : '—'}</Mono></div>
-              <div><div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim }}>SCORE</div><Mono size={14} color={zoneColor(topSetup.zone)}>{topSetup.convergence_score ?? topSetup.score ?? '—'}/22</Mono></div>
+              <div><div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim }}>SCORE</div><Mono size={14} color={zoneColor(topSetup.zone)}>{topSetup.convergence_score ?? topSetup.score ?? '—'}/23</Mono></div>
               <div><div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim }}>ZONE</div><ZoneBadge zone={topSetup.zone} /></div>
               <div><div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim }}>STAGE</div><Mono size={14}>{topSetup.stage || topSetup.weinstein_stage || '—'}</Mono></div>
             </div>
@@ -443,11 +520,12 @@ function WatchPage() {
                   <div><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1.5, color: C.textDim }}>MO </span><Pct v={s.month_change ?? s.change_1m} size={11} /></div>
                 </div>
                 <div style={{ display: 'flex', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
-                  <Mono size={10} color={C.textDim}>Score: <span style={{ color: zoneColor(s.zone) }}>{s.convergence_score ?? s.score ?? '—'}/22</span></Mono>
+                  <Mono size={10} color={C.textDim}>Score: <span style={{ color: zoneColor(s.zone) }}>{s.convergence_score ?? s.score ?? '—'}/23</span></Mono>
                   <Mono size={10} color={C.textDim}>Stage: {s.stage || s.weinstein_stage || '—'}</Mono>
                   <Mono size={10} color={C.textDim}>TPL: {s.template_score ?? s.minervini_score ?? '—'}/8</Mono>
                   <Mono size={10} color={C.textDim}>RS: {s.rs ?? s.relative_strength ?? '—'}</Mono>
                   <Mono size={10} color={C.textDim}>Kell: {s.kell_phase ?? s.phase ?? '—'}</Mono>
+                  {s.finra?.svr_today != null && <Mono size={10} color={s.finra.color === 'green' ? C.green : s.finra.color === 'red' ? C.red : s.finra.color === 'yellow' ? C.gold : C.textDim}>SVR: {s.finra.svr_today}%</Mono>}
                 </div>
                 {(s.vcp || s.vcp_detected) && <div style={{ marginTop: 4 }}><Mono size={10} color={C.purple}>VCP Detected — {s.vcp_contractions || s.contractions || '?'} contractions</Mono></div>}
                 {s.flags && s.flags.length > 0 && <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>{s.flags.map((f, i) => <span key={i} style={{ fontFamily: FM, fontSize: 9, color: C.gold, background: `${C.gold}11`, border: `1px solid ${C.gold}33`, borderRadius: 3, padding: '1px 6px' }}>{f}</span>)}</div>}
@@ -830,7 +908,7 @@ function AnalyzePage() {
           </Collapsible>
 
           {/* Section 2: MKW Convergence */}
-          <Collapsible title="MKW CONVERGENCE ANALYSIS" defaultOpen borderColor={C.gold} right={<Mono size={11} color={zoneColor(a.zone)}>{a.convergence_score ?? a.score ?? '—'}/22</Mono>}>
+          <Collapsible title="MKW CONVERGENCE ANALYSIS" defaultOpen borderColor={C.gold} right={<Mono size={11} color={zoneColor(a.zone)}>{a.convergence_score ?? a.score ?? '—'}/23</Mono>}>
             <div style={{ padding: 12 }}>
               <div style={{ marginBottom: 8 }}><ZoneBadge zone={a.zone} /></div>
               {checklist.length > 0 ? (
@@ -1560,6 +1638,9 @@ function AppInner() {
         <span style={{ fontFamily: FO, fontWeight: 900, fontSize: 13, letterSpacing: 4, color: C.gold, textShadow: glow(C.gold, 8) }}>MKW</span>
         <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 10, letterSpacing: 2, color: C.textDim, marginLeft: 8 }}>{page.toUpperCase()}</span>
       </div>
+
+      {/* Data Status Bar */}
+      <DataStatusBar />
 
       {/* Content Area */}
       <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', paddingBottom: 70, WebkitOverflowScrolling: 'touch' }}>

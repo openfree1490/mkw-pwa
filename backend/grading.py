@@ -388,8 +388,52 @@ def score_flow_confirmation(short_vol_ratio: float = 0.5, insider_buying: bool =
             breakdown.append("No unusual options activity = 0pts")
 
     return {
-        "points": min(10, points),
-        "max": 10,
+        "points": min(8, points),
+        "max": 8,
+        "breakdown": breakdown,
+        "disqualified": False,
+    }
+
+
+def score_macro_environment(macro_score: int = 5, event_imminent: bool = False,
+                            sector_aligned: bool = True) -> dict:
+    """
+    Macro Environment: 5 points max (new component).
+    FRED score (3pts) + no imminent event (1pt) + sector alignment (1pt).
+    """
+    points = 0
+    breakdown = []
+
+    # FRED macro score: 3pts
+    if macro_score >= 8:
+        points += 3
+        breakdown.append(f"Macro TAILWIND ({macro_score}/10) = 3pts")
+    elif macro_score >= 5:
+        points += 2
+        breakdown.append(f"Macro NEUTRAL ({macro_score}/10) = 2pts")
+    elif macro_score >= 3:
+        points += 1
+        breakdown.append(f"Macro HEADWIND ({macro_score}/10) = 1pt")
+    else:
+        breakdown.append(f"Macro CRISIS ({macro_score}/10) = 0pts")
+
+    # No imminent event: 1pt
+    if not event_imminent:
+        points += 1
+        breakdown.append("No major event within 48h = 1pt")
+    else:
+        breakdown.append("Major event imminent = 0pts (hold off)")
+
+    # Sector alignment: 1pt
+    if sector_aligned:
+        points += 1
+        breakdown.append("Sector macro-aligned = 1pt")
+    else:
+        breakdown.append("Sector headwind = 0pts")
+
+    return {
+        "points": min(5, points),
+        "max": 5,
         "breakdown": breakdown,
         "disqualified": False,
     }
@@ -418,6 +462,9 @@ def grade_trade(
     short_vol_ratio: float = 0.5, insider_buying: bool = False,
     insider_selling: bool = False, unusual_call_vol: bool = False,
     unusual_put_vol: bool = False,
+    # Macro (new)
+    macro_score: int = 5, event_imminent: bool = False,
+    sector_aligned: bool = True,
     # Meta
     is_short: bool = False,
 ) -> dict:
@@ -457,8 +504,15 @@ def grade_trade(
         short_vol_ratio, insider_buying, insider_selling,
         unusual_call_vol, unusual_put_vol, is_short)
 
-    # Total score
-    total = directional["points"] + options["points"] + timing["points"] + risk["points"] + flow["points"]
+    macro = score_macro_environment(macro_score, event_imminent, sector_aligned)
+
+    # Raw total (108 max: 30+25+20+15+8+5 = 103... actually 30+25+20+15+8+5=103)
+    # Directional=30, Options=25, Timing=20, Risk=15, Flow=8, Macro=5 = 103
+    raw_total = directional["points"] + options["points"] + timing["points"] + risk["points"] + flow["points"] + macro["points"]
+    raw_max = directional["max"] + options["max"] + timing["max"] + risk["max"] + flow["max"] + macro["max"]
+
+    # Normalize to 100
+    total = round(raw_total / max(raw_max, 1) * 100)
 
     # Check for disqualifying conditions
     disqualified = False
@@ -481,6 +535,8 @@ def grade_trade(
     return {
         "totalScore": total,
         "maxScore": 100,
+        "rawTotal": raw_total,
+        "rawMax": raw_max,
         **grade_info,
         "components": {
             "directional": directional,
@@ -488,10 +544,11 @@ def grade_trade(
             "timing": timing,
             "risk": risk,
             "flow": flow,
+            "macro": macro,
         },
         "disqualified": disqualified,
         "disqualifyReasons": disqualify_reasons,
-        "summary": f"Directional: {directional['points']}/{directional['max']} | Options: {options['points']}/{options['max']} | Timing: {timing['points']}/{timing['max']} | Risk: {risk['points']}/{risk['max']} | Flow: {flow['points']}/{flow['max']} = {total}/100 = {grade_info['grade']}",
+        "summary": f"Dir: {directional['points']}/{directional['max']} | Opt: {options['points']}/{options['max']} | Tim: {timing['points']}/{timing['max']} | Risk: {risk['points']}/{risk['max']} | Flow: {flow['points']}/{flow['max']} | Macro: {macro['points']}/{macro['max']} = {total}/100 = {grade_info['grade']}",
         "stopPrice": round(stop_price, 2),
         "target1": round(target1, 2),
         "target2": round(target2, 2),
