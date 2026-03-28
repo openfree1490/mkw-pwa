@@ -526,11 +526,23 @@ def generate_trade_ideas(
 
         return {
             "ticker": ticker,
+            "spot": round(spot, 2),
             "grade": grade_result,
             "tradeable": False,
+            "bias": "NEUTRAL",
+            "conviction": "NONE",
             "noTradeReason": f"Does not meet minimum criteria. Failing: {'; '.join(failing) if failing else 'Score too low'}.",
             "strategies": [],
             "thesis": thesis,
+            "stopPrice": round(stop, 2),
+            "target1": round(target1, 2),
+            "target2": round(target2, 2),
+            "isShort": is_short,
+            "stage": wein.get("stage", "?"),
+            "ivRank": iv_rank,
+            "phase": phase,
+            "convZone": conv_zone,
+            "convScore": conv_score,
         }
 
     # Generate strategies
@@ -615,13 +627,144 @@ def generate_trade_ideas(
             },
         ]
 
+    # ── Enrich each strategy with entry triggers, things to watch, position sizing ──
+    stage = wein.get("stage", "?")
+    iv_rank = iv_data.get("ivRank", 50)
+
+    for strat in strategies:
+        agg = strat.get("aggression", "moderate")
+
+        # Entry triggers — what must happen before entering
+        triggers = []
+        if vcp.get("pivot") and vcp["pivot"] > 0:
+            triggers.append(f"Price clears VCP pivot ${vcp['pivot']:.2f} on volume > 1.5x avg")
+        if phase in ("EMA Crossback", "Pop"):
+            triggers.append("Price holds above 10/20 EMA on daily close")
+        elif phase == "Base n Break":
+            triggers.append("Breakout above consolidation range on volume expansion")
+        elif phase == "Wedge":
+            triggers.append("Wait for breakout direction — do NOT enter inside the wedge")
+        if not is_short and stage in ("2A",):
+            triggers.append("Confirmed close above prior swing high")
+        elif is_short and stage in ("4A", "4B"):
+            triggers.append("Confirmed close below prior swing low")
+        if not triggers:
+            triggers.append(f"Enter on pullback to 20 EMA (${spot * 0.97:.2f} area) with volume confirmation")
+        strat["entryTriggers"] = triggers
+
+        # Entry zone
+        if vcp.get("pivot") and vcp["pivot"] > 0:
+            strat["entryZone"] = f"${vcp['pivot']:.2f} — ${vcp['pivot'] * 1.02:.2f}"
+        elif not is_short:
+            strat["entryZone"] = f"${spot * 0.97:.2f} — ${spot * 1.01:.2f}"
+        else:
+            strat["entryZone"] = f"${spot * 0.99:.2f} — ${spot * 1.03:.2f}"
+
+        # Things to watch / risk factors
+        watch = []
+        if iv_rank > 50:
+            watch.append(f"IV Rank {iv_rank} — elevated premium, consider spread instead of naked long")
+        if fundamentals.get("nextEarningsDate"):
+            watch.append(f"Earnings date: {fundamentals['nextEarningsDate']} — consider closing or hedging before")
+        if vol_ratio < 0.8:
+            watch.append("Below-average volume — wait for participation before committing full size")
+        elif vol_ratio > 2.0:
+            watch.append("Unusual volume surge — verify catalyst before chasing")
+        if phase == "Extension":
+            watch.append("Price extended above 10 EMA — high risk of mean reversion pullback")
+        if stage == "2B":
+            watch.append("Late Stage 2 — uptrend mature, tighten stops faster than normal")
+        if not is_short and rs < 70:
+            watch.append(f"RS {rs} below 70 — relative strength not yet confirmed")
+        if tpl_score < 8:
+            watch.append(f"Trend Template {tpl_score}/8 — not all criteria met")
+        watch.append("Monitor sector rotation — if sector leadership shifts, reassess position")
+        strat["thingsToWatch"] = watch
+
+        # Position sizing recommendation
+        grade_score = grade_result.get("totalScore", 0)
+        if agg == "aggressive":
+            if grade_score >= 90:
+                strat["positionSize"] = "Full position (5-8% of portfolio)"
+                strat["positionPct"] = "5-8%"
+            elif grade_score >= 80:
+                strat["positionSize"] = "Standard position (3-5% of portfolio)"
+                strat["positionPct"] = "3-5%"
+            else:
+                strat["positionSize"] = "Reduced position (2-3% of portfolio)"
+                strat["positionPct"] = "2-3%"
+        elif agg == "moderate":
+            strat["positionSize"] = "Standard position (3-5% of portfolio)"
+            strat["positionPct"] = "3-5%"
+        else:  # conservative
+            strat["positionSize"] = "Core position (5-10% of portfolio)"
+            strat["positionPct"] = "5-10%"
+
+        # Assign individual strategy grade based on aggression + overall grade
+        overall_score = grade_result.get("totalScore", 0)
+        if agg == "aggressive":
+            adj = -5 if iv_rank > 40 else 3  # penalize aggressive when IV high
+        elif agg == "conservative":
+            adj = 5  # conservative always gets a slight bump
+        else:
+            adj = 0
+        strat_score = max(0, min(100, overall_score + adj))
+        if strat_score >= 95: strat["grade"] = "A+"
+        elif strat_score >= 90: strat["grade"] = "A"
+        elif strat_score >= 85: strat["grade"] = "A-"
+        elif strat_score >= 80: strat["grade"] = "B+"
+        elif strat_score >= 75: strat["grade"] = "B"
+        elif strat_score >= 70: strat["grade"] = "B-"
+        elif strat_score >= 65: strat["grade"] = "C+"
+        elif strat_score >= 60: strat["grade"] = "C"
+        elif strat_score >= 55: strat["grade"] = "C-"
+        elif strat_score >= 50: strat["grade"] = "D+"
+        elif strat_score >= 45: strat["grade"] = "D"
+        elif strat_score >= 40: strat["grade"] = "D-"
+        else: strat["grade"] = "F"
+        strat["gradeScore"] = strat_score
+
+        # Stop and targets on each strategy
+        strat["stopPrice"] = round(stop, 2)
+        strat["target1"] = round(target1, 2)
+        strat["target2"] = round(target2, 2)
+
+    # ── Directional bias summary ──
+    if not is_short and conv_zone == "CONVERGENCE":
+        bias = "STRONGLY BULLISH"
+        conviction = "HIGH" if grade_result.get("totalScore", 0) >= 80 else "MODERATE"
+    elif not is_short and conv_zone == "SECONDARY":
+        bias = "BULLISH"
+        conviction = "MODERATE"
+    elif not is_short and conv_zone == "BUILDING":
+        bias = "MODERATELY BULLISH"
+        conviction = "LOW"
+    elif is_short and stage in ("4A", "4B"):
+        bias = "STRONGLY BEARISH"
+        conviction = "HIGH" if grade_result.get("totalScore", 0) >= 80 else "MODERATE"
+    elif is_short:
+        bias = "BEARISH"
+        conviction = "MODERATE"
+    else:
+        bias = "NEUTRAL"
+        conviction = "LOW"
+
     return {
         "ticker": ticker,
+        "spot": round(spot, 2),
         "grade": grade_result,
         "tradeable": True,
+        "bias": bias,
+        "conviction": conviction,
         "strategies": strategies,
         "thesis": thesis,
         "stopPrice": round(stop, 2),
         "target1": round(target1, 2),
         "target2": round(target2, 2),
+        "isShort": is_short,
+        "stage": wein.get("stage", "?"),
+        "ivRank": iv_rank,
+        "phase": phase,
+        "convZone": conv_zone,
+        "convScore": conv_score,
     }

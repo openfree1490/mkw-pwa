@@ -1204,40 +1204,213 @@ function AnalyzePage() {
             </Collapsible>
           )}
 
-          {/* Section 7: Trade Ideas */}
-          {tradeIdeas.length > 0 && (
-            <Collapsible title="TRADE IDEAS" borderColor={C.green} defaultOpen>
-              <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {tradeIdeas.map((idea, i) => {
-                  const ideaGrade = idea.grade || idea.rating
-                  return (
-                    <div key={i} style={{ background: C.raised, borderRadius: 8, padding: 12, border: `1px solid ${gradeColor(ideaGrade)}33` }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                        <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 11, letterSpacing: 1, color: C.textBright }}>{idea.strategy || idea.name || idea.type || `Strategy ${i + 1}`}</div>
-                        {ideaGrade && <GradeBadge grade={ideaGrade} size={14} />}
-                      </div>
-                      <div style={{ fontFamily: FR, fontSize: 12, color: C.text, lineHeight: 1.5, marginBottom: 6 }}>{idea.description || idea.thesis || idea.rationale || ''}</div>
-                      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                        {idea.entry && <div><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, color: C.textDim }}>ENTRY </span><Mono size={11}>{idea.entry}</Mono></div>}
-                        {idea.stop && <div><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, color: C.textDim }}>STOP </span><Mono size={11} color={C.red}>{idea.stop}</Mono></div>}
-                        {idea.target && <div><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, color: C.textDim }}>TARGET </span><Mono size={11} color={C.green}>{idea.target}</Mono></div>}
-                        {idea.risk_reward && <div><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, color: C.textDim }}>R:R </span><Mono size={11} color={C.gold}>{idea.risk_reward}</Mono></div>}
-                        {idea.max_risk && <div><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, color: C.textDim }}>MAX RISK </span><Mono size={11} color={C.red}>{idea.max_risk}</Mono></div>}
+          {/* Section 7: Trade Execution Plans */}
+          {trades && !trades.error && (
+            <Collapsible title="TRADE EXECUTION PLANS" borderColor={C.green} defaultOpen
+              right={trades.bias ? <Mono size={10} color={trades.bias?.includes('BULL') ? C.green : trades.bias?.includes('BEAR') ? C.red : C.textDim}>{trades.bias} — {trades.conviction}</Mono> : null}>
+              <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {/* Overall trade assessment */}
+                {trades.grade && (
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: 8, background: C.bg, borderRadius: 6, border: `1px solid ${C.border}` }}>
+                    <GradeBadge grade={trades.grade?.grade} size={28} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 10, color: C.textBright }}>{trades.grade?.grade} — {trades.grade?.description || ''}</div>
+                      <div style={{ fontFamily: FM, fontSize: 9, color: C.textDim }}>
+                        Score: {trades.grade?.totalScore || trades.grade?.score || '—'}/100 | {trades.tradeable ? 'TRADEABLE' : 'WATCH ONLY'} | IV Rank: {trades.ivRank ?? '—'}
                       </div>
                     </div>
+                  </div>
+                )}
+                {!trades.tradeable && trades.noTradeReason && (
+                  <div style={{ padding: 10, background: `${C.red}11`, border: `1px solid ${C.red}33`, borderRadius: 6 }}>
+                    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.red, marginBottom: 4 }}>NO TRADE</div>
+                    <div style={{ fontFamily: FR, fontSize: 12, color: C.text }}>{trades.noTradeReason}</div>
+                  </div>
+                )}
+                {/* Global levels */}
+                {(trades.stopPrice || trades.target1) && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                    {[
+                      { l: 'STOP', v: trades.stopPrice, c: C.red },
+                      { l: 'TARGET 1', v: trades.target1, c: C.green },
+                      { l: 'TARGET 2', v: trades.target2, c: C.green },
+                      { l: 'SPOT', v: trades.spot, c: C.textBright },
+                    ].filter(x => x.v).map(({ l, v, c }) => (
+                      <div key={l} style={{ background: C.raised, borderRadius: 4, padding: 6, textAlign: 'center' }}>
+                        <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1.5, color: C.textDim }}>{l}</div>
+                        <Mono size={12} color={c}>${Number(v).toFixed(2)}</Mono>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* Strategy Cards */}
+                {(trades.strategies || tradeIdeas).map((strat, i) => {
+                  const aggColor = strat.aggression === 'aggressive' ? C.red : strat.aggression === 'conservative' ? C.blue : C.gold
+                  const aggLabel = (strat.aggression || '').toUpperCase()
+                  const sg = strat.grade || strat.rating
+                  return (
+                    <Collapsible key={i} title={strat.strategyName || strat.strategy || strat.name || `Strategy ${i + 1}`}
+                      borderColor={aggColor} defaultOpen={i === 0}
+                      right={sg ? <span style={{ fontFamily: FO, fontWeight: 900, fontSize: 14, color: gradeColor(sg), textShadow: gradeGlow(sg) }}>{sg}</span> : null}>
+                      <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {/* Aggression badge + score */}
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.bg, background: aggColor, padding: '2px 10px', borderRadius: 3 }}>{aggLabel}</span>
+                          {strat.gradeScore != null && <Mono size={10} color={C.textDim}>Score: {strat.gradeScore}/100</Mono>}
+                          {strat.positionPct && <Mono size={10} color={C.textDim}>Size: {strat.positionPct}</Mono>}
+                        </div>
+                        {/* Description */}
+                        <div style={{ fontFamily: FR, fontSize: 12, color: C.text, lineHeight: 1.6 }}>
+                          {strat.description || strat.thesis || strat.rationale || ''}
+                        </div>
+                        {/* Option Contract Details */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+                          {[
+                            { l: 'TYPE', v: strat.optionType?.toUpperCase() },
+                            { l: 'STRIKE', v: strat.strike ? `$${strat.strike}` : strat.longStrike ? `$${strat.longStrike}/$${strat.shortStrike}` : null },
+                            { l: 'EXPIRY', v: strat.expiry },
+                            { l: 'DTE', v: strat.dte },
+                            { l: 'MID', v: strat.mid != null ? `$${Number(strat.mid).toFixed(2)}` : strat.netDebit != null ? `$${Number(strat.netDebit).toFixed(2)} debit` : null },
+                            { l: 'BID/ASK', v: strat.bid != null ? `$${Number(strat.bid).toFixed(2)}/$${Number(strat.ask).toFixed(2)}` : null },
+                            { l: 'IV', v: strat.iv ? `${(strat.iv * 100).toFixed(1)}%` : null },
+                            { l: 'BREAKEVEN', v: strat.breakeven ? `$${Number(strat.breakeven).toFixed(2)}` : null },
+                            { l: 'B/E %', v: strat.breakevenPct != null ? `${strat.breakevenPct}%` : null },
+                          ].filter(x => x.v != null).map(({ l, v }) => (
+                            <div key={l} style={{ background: C.bg, borderRadius: 4, padding: '4px 6px' }}>
+                              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1, color: C.textDim }}>{l}</div>
+                              <Mono size={10}>{v}</Mono>
+                            </div>
+                          ))}
+                        </div>
+                        {/* Greeks */}
+                        {strat.greeks && (
+                          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                            {[
+                              { l: 'Delta', v: strat.greeks.delta, c: C.blue },
+                              { l: 'Gamma', v: strat.greeks.gamma },
+                              { l: 'Theta', v: strat.greeks.theta, c: C.red },
+                              { l: 'Vega', v: strat.greeks.vega, c: C.purple },
+                            ].filter(x => x.v != null && x.v !== 0).map(({ l, v, c }) => (
+                              <div key={l}>
+                                <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1, color: C.textDim }}>{l} </span>
+                                <Mono size={10} color={c}>{typeof v === 'number' ? v.toFixed(4) : v}</Mono>
+                              </div>
+                            ))}
+                            {strat.thetaPerDay != null && strat.thetaPerDay !== 0 && (
+                              <div><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1, color: C.textDim }}>Theta/Day </span><Mono size={10} color={C.red}>${Math.abs(strat.thetaPerDay).toFixed(2)}</Mono></div>
+                            )}
+                          </div>
+                        )}
+                        {/* Execution Levels */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6 }}>
+                          {strat.entryZone && (
+                            <div style={{ background: `${C.blue}11`, border: `1px solid ${C.blue}22`, borderRadius: 4, padding: 6 }}>
+                              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1.5, color: C.blue }}>ENTRY ZONE</div>
+                              <Mono size={11} color={C.blue}>{strat.entryZone}</Mono>
+                            </div>
+                          )}
+                          {strat.stopPrice && (
+                            <div style={{ background: `${C.red}11`, border: `1px solid ${C.red}22`, borderRadius: 4, padding: 6 }}>
+                              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1.5, color: C.red }}>STOP LOSS</div>
+                              <Mono size={11} color={C.red}>${Number(strat.stopPrice).toFixed(2)}</Mono>
+                            </div>
+                          )}
+                          {strat.target1 && (
+                            <div style={{ background: `${C.green}11`, border: `1px solid ${C.green}22`, borderRadius: 4, padding: 6 }}>
+                              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1.5, color: C.green }}>TARGET 1</div>
+                              <Mono size={11} color={C.green}>${Number(strat.target1).toFixed(2)}</Mono>
+                            </div>
+                          )}
+                          {strat.target2 && (
+                            <div style={{ background: `${C.green}11`, border: `1px solid ${C.green}22`, borderRadius: 4, padding: 6 }}>
+                              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1.5, color: C.green }}>TARGET 2</div>
+                              <Mono size={11} color={C.green}>${Number(strat.target2).toFixed(2)}</Mono>
+                            </div>
+                          )}
+                        </div>
+                        {/* Risk/Reward */}
+                        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                          {strat.maxRisk != null && strat.maxRisk > 0 && (
+                            <div><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, color: C.textDim }}>MAX RISK </span><Mono size={11} color={C.red}>${Number(strat.maxRisk).toFixed(0)}/contract</Mono></div>
+                          )}
+                          {strat.rrRatio != null && strat.rrRatio > 0 && (
+                            <div><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, color: C.textDim }}>R:R </span><Mono size={11} color={C.gold}>1:{strat.rrRatio}</Mono></div>
+                          )}
+                          {strat.maxProfit != null && (
+                            <div><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, color: C.textDim }}>MAX PROFIT </span><Mono size={11} color={C.green}>${Number(strat.maxProfit).toFixed(2)} ({strat.maxProfitPct}%)</Mono></div>
+                          )}
+                          {strat.positionSize && (
+                            <div><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, color: C.textDim }}>POSITION </span><Mono size={10}>{strat.positionSize}</Mono></div>
+                          )}
+                        </div>
+                        {/* P&L Targets projection */}
+                        {strat.targets && strat.targets.length > 0 && (
+                          <div>
+                            <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1.5, color: C.textDim, marginBottom: 4 }}>P&L PROJECTION</div>
+                            {strat.targets.map((t, j) => (
+                              <div key={j} style={{ display: 'flex', gap: 12, padding: '3px 0', borderBottom: `1px solid ${C.border}22` }}>
+                                <Mono size={10} color={C.textDim}>Stock @ ${Number(t.stockPrice).toFixed(2)}</Mono>
+                                <Mono size={10}>Option: ${Number(t.optionValue).toFixed(2)}</Mono>
+                                <Mono size={10} color={t.pnl >= 0 ? C.green : C.red}>P&L: ${Number(t.pnl).toFixed(0)} ({t.pnlPct > 0 ? '+' : ''}{t.pnlPct}%)</Mono>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {/* Entry Triggers */}
+                        {strat.entryTriggers && strat.entryTriggers.length > 0 && (
+                          <div>
+                            <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1.5, color: C.blue, marginBottom: 4 }}>ENTRY TRIGGERS</div>
+                            {strat.entryTriggers.map((t, j) => (
+                              <div key={j} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', padding: '2px 0' }}>
+                                <span style={{ fontFamily: FM, fontSize: 10, color: C.blue, flexShrink: 0 }}>&#9654;</span>
+                                <span style={{ fontFamily: FR, fontSize: 11, color: C.text, lineHeight: 1.4 }}>{t}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {/* Things to Watch */}
+                        {strat.thingsToWatch && strat.thingsToWatch.length > 0 && (
+                          <div>
+                            <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1.5, color: C.gold, marginBottom: 4 }}>THINGS TO WATCH</div>
+                            {strat.thingsToWatch.map((t, j) => (
+                              <div key={j} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', padding: '2px 0' }}>
+                                <span style={{ fontFamily: FM, fontSize: 10, color: C.gold, flexShrink: 0 }}>&#9888;</span>
+                                <span style={{ fontFamily: FR, fontSize: 11, color: C.text, lineHeight: 1.4 }}>{t}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {/* When to use */}
+                        {strat.whenToUse && (
+                          <div style={{ fontFamily: FM, fontSize: 10, color: C.textDim, fontStyle: 'italic' }}>Best for: {strat.whenToUse}</div>
+                        )}
+                      </div>
+                    </Collapsible>
                   )
                 })}
+                {tradeIdeas.length === 0 && (!trades.strategies || trades.strategies.length === 0) && (
+                  <div style={{ fontFamily: FR, fontSize: 12, color: C.textDim, textAlign: 'center', padding: 16 }}>No trade strategies generated — data may still be loading.</div>
+                )}
               </div>
             </Collapsible>
           )}
 
-          {/* Section 8: Thesis */}
-          {thesis && (
-            <Collapsible title="EDUCATIONAL THESIS" borderColor={C.textDim}>
+          {/* Section 8: Detailed Thesis */}
+          {(trades?.thesis || thesis) && (
+            <Collapsible title="DETAILED THESIS" borderColor={C.textDim} defaultOpen>
               <div style={{ padding: 12 }}>
-                {String(thesis).split('\n').map((line, i) => {
-                  if (!line.trim()) return <div key={i} style={{ height: 6 }} />
-                  return <div key={i} style={{ fontFamily: FR, fontSize: 13, fontWeight: 500, color: C.text, lineHeight: 1.7 }}>{line}</div>
+                {String(trades?.thesis || thesis).split('\n').map((line, i) => {
+                  if (!line.trim()) return <div key={i} style={{ height: 8 }} />
+                  const isHeader = line.startsWith('KEY RISK') || line.startsWith('What would')
+                  return <div key={i} style={{
+                    fontFamily: isHeader ? FO : FR,
+                    fontSize: isHeader ? 11 : 13,
+                    fontWeight: isHeader ? 700 : 500,
+                    color: isHeader ? C.gold : C.text,
+                    lineHeight: 1.7,
+                    letterSpacing: isHeader ? 1 : 0,
+                    marginTop: isHeader ? 4 : 0,
+                  }}>{line}</div>
                 })}
               </div>
             </Collapsible>
