@@ -16,7 +16,7 @@ import requests
 from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 import traceback
 
 # Local modules
@@ -33,6 +33,8 @@ from options_engine import (
 )
 from grading import grade_trade, score_to_grade
 from trade_ideas import generate_trade_ideas
+import llm_provider
+import wizard as wiz
 from journal import (
     add_trade, update_trade, delete_trade, get_trades, get_trade,
     compute_analytics,
@@ -1973,6 +1975,139 @@ def get_daily_brief():
 @app.get("/api/brief")
 def get_brief():
     return get_daily_brief()
+
+# ─────────────────────────────────────────────
+# MARKET WIZARD CHAT
+# ─────────────────────────────────────────────
+
+@app.post("/api/wizard/chat")
+async def wizard_chat(request: Request):
+    """Streaming AI chat with market context injection."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "Invalid JSON")
+
+    message = str(body.get("message", "")).strip()
+    conversation_history = body.get("conversationHistory", [])
+    page_context = body.get("context", {})
+
+    if not message:
+        raise HTTPException(400, "message required")
+
+    # 1. Classify the query
+    classification = wiz.classify_query(message)
+    tickers = classification["tickers"]
+    needs_market = classification["needs_market_data"]
+    needs_reasoning = classification["needs_reasoning"]
+    max_tokens = classification["max_tokens"]
+
+    # 2. Gather contextual data
+    market_context_parts = []
+
+    # Inject page context if available
+    if page_context.get("currentTicker") and not tickers:
+        tickers = [page_context["currentTicker"]]
+
+    if needs_market or page_context.get("breadth"):
+        try:
+            breadth_data = cache_get("breadth", CACHE_BREADTH * 4)
+            if not breadth_data:
+                breadth_data = to_python(compute_breadth())
+            market_context_parts.append(wiz.format_market_context(breadth_data))
+        except Exception as e:
+            log.warning(f"Wizard: breadth fetch failed: {e}")
+
+    # Fetch ticker data
+    for ticker in tickers[:3]:
+        try:
+            # Try cache first
+            cached = cache_get(f"analyze_{ticker}", CACHE_WATCHLIST * 2)
+            if cached:
+                market_context_parts.append(wiz.format_ticker_context(ticker, cached))
+            else:
+                # Quick analysis
+                spy_df = get_spy()
+                result = analyze_ticker(ticker, spy_df if spy_df is not None else pd.DataFrame(), _mkt_snapshot)
+                if result:
+                    normalized = _normalize_stock(result)
+                    market_context_parts.append(wiz.format_ticker_context(ticker, normalized))
+        except Exception as e:
+            log.warning(f"Wizard: ticker {ticker} fetch failed: {e}")
+            market_context_parts.append(f"\nTICKER {ticker}: Data fetch failed")
+
+    # If asking about best setups, inject watchlist summary
+    lower = message.lower()
+    if any(kw in lower for kw in ["best setup", "top pick", "watchlist", "best play", "what should"]):
+        try:
+            wl = cache_get("watchlist", CACHE_WATCHLIST * 4)
+            if wl:
+                market_context_parts.append(wiz.format_watchlist_summary(wl.get("stocks", [])))
+        except Exception:
+            pass
+
+    # If asking about macro
+    if any(kw in lower for kw in ["macro", "fed", "rates", "inflation", "economy"]):
+        try:
+            if _macro_cache and _macro_cache.get("score"):
+                mc = _macro_cache
+                score = mc["score"]
+                market_context_parts.append(f"\nMACRO ENVIRONMENT: Score {score.get('score', '?')}/10 ({score.get('regime', '?')})")
+                rates = mc.get("rates", {})
+                if rates:
+                    market_context_parts.append(f"  Fed Funds: {rates.get('fed_funds', '?')}% | 10Y: {rates.get('ten_year', '?')}% | Yield Curve: {rates.get('yield_curve', '?')}%")
+        except Exception:
+            pass
+
+    full_context = "\n".join(market_context_parts)
+
+    # 3. Build messages
+    system_prompt = wiz.build_system_prompt(full_context)
+    messages = [{"role": "system", "content": system_prompt}]
+
+    # Add conversation history (last 10 exchanges)
+    for msg in conversation_history[-20:]:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        if role in ("user", "assistant") and content:
+            messages.append({"role": role, "content": content})
+
+    messages.append({"role": "user", "content": message})
+
+    # 4. Stream response via SSE
+    def event_stream():
+        try:
+            for chunk in llm_provider.stream_completion(
+                messages=messages,
+                use_reasoning=needs_reasoning,
+                max_tokens=max_tokens,
+            ):
+                yield f"data: {json.dumps(chunk)}\n\n"
+
+            # Send follow-up suggestions
+            follow_ups = wiz.generate_follow_ups(message, "", tickers)
+            yield f"data: {json.dumps({'type': 'suggestions', 'suggestions': follow_ups})}\n\n"
+
+        except Exception as e:
+            log.error(f"Wizard stream error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.get("/api/wizard/status")
+def wizard_status():
+    """Return LLM provider status."""
+    return llm_provider.get_provider_status()
+
 
 # ─────────────────────────────────────────────
 # JOURNAL ENDPOINTS

@@ -1866,6 +1866,333 @@ function JournalPage() {
 // ═══════════════════════════════════════════════════════════════════════════
 // MAIN APP
 // ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
+// MARKET WIZARD — Floating AI Chat Agent
+// ═══════════════════════════════════════════════════════════════════════════
+
+function MarketWizard({ currentPage, pageData, onNavigate }) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [messages, setMessages] = useState([])
+  const [input, setInput] = useState('')
+  const [streaming, setStreaming] = useState(false)
+  const [provider, setProvider] = useState('')
+  const scrollRef = { current: null }
+  const inputRef = { current: null }
+
+  // Auto-scroll to bottom
+  const scrollToBottom = () => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+  }
+
+  useEffect(() => { scrollToBottom() }, [messages])
+
+  // Stream response from wizard API
+  const sendMessage = async (text) => {
+    const msg = (text || input).trim()
+    if (!msg || streaming) return
+    setInput('')
+
+    // Add user message
+    const userMsg = { role: 'user', content: msg, ts: Date.now() }
+    setMessages(prev => [...prev, userMsg])
+
+    // Prepare conversation history (last 20 messages)
+    const history = [...messages, userMsg].slice(-20).map(m => ({ role: m.role, content: m.content }))
+
+    // Build page context
+    const context = {}
+    if (currentPage === 'analyze' && pageData?.currentTicker) {
+      context.currentTicker = pageData.currentTicker
+    }
+
+    // Start streaming
+    setStreaming(true)
+    setProvider('')
+    const assistantMsg = { role: 'assistant', content: '', ts: Date.now(), streaming: true, suggestions: [] }
+    setMessages(prev => [...prev, assistantMsg])
+
+    try {
+      const resp = await fetch('/api/wizard/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg, conversationHistory: history, context }),
+      })
+
+      const reader = resp.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let fullText = ''
+      let prov = ''
+      let suggestions = []
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const data = JSON.parse(line.slice(6))
+            if (data.type === 'provider') {
+              prov = data.provider
+              setProvider(prov)
+            } else if (data.type === 'content') {
+              fullText += data.content
+              setMessages(prev => {
+                const updated = [...prev]
+                const last = updated[updated.length - 1]
+                if (last && last.role === 'assistant') {
+                  updated[updated.length - 1] = { ...last, content: fullText }
+                }
+                return updated
+              })
+            } else if (data.type === 'suggestions') {
+              suggestions = data.suggestions || []
+            } else if (data.type === 'error') {
+              fullText = data.error || 'An error occurred.'
+              setMessages(prev => {
+                const updated = [...prev]
+                const last = updated[updated.length - 1]
+                if (last && last.role === 'assistant') {
+                  updated[updated.length - 1] = { ...last, content: fullText, isError: true }
+                }
+                return updated
+              })
+            } else if (data.type === 'done') {
+              // done
+            }
+          } catch {}
+        }
+      }
+
+      // Finalize
+      setMessages(prev => {
+        const updated = [...prev]
+        const last = updated[updated.length - 1]
+        if (last && last.role === 'assistant') {
+          updated[updated.length - 1] = { ...last, streaming: false, provider: prov, suggestions }
+        }
+        return updated
+      })
+
+    } catch (e) {
+      setMessages(prev => {
+        const updated = [...prev]
+        const last = updated[updated.length - 1]
+        if (last && last.role === 'assistant') {
+          updated[updated.length - 1] = { ...last, content: 'Connection failed. Check your internet and try again.', streaming: false, isError: true }
+        }
+        return updated
+      })
+    } finally {
+      setStreaming(false)
+    }
+  }
+
+  const clearChat = () => { setMessages([]); setProvider('') }
+
+  // Render message text with basic formatting
+  const renderText = (text) => {
+    if (!text) return null
+    return text.split('\n').map((line, i) => {
+      if (!line.trim()) return <div key={i} style={{ height: 6 }} />
+      // Bold **text**
+      const parts = line.split(/(\*\*[^*]+\*\*)/).map((part, j) => {
+        if (part.startsWith('**') && part.endsWith('**')) {
+          return <strong key={j} style={{ color: C.textBright }}>{part.slice(2, -2)}</strong>
+        }
+        // Make tickers clickable
+        return part.split(/(\$[A-Z]{1,5}\b|(?<=\s)[A-Z]{2,5}(?=\s|$|\.|,))/).map((seg, k) => {
+          const tickerMatch = seg.match(/^\$?([A-Z]{2,5})$/)
+          if (tickerMatch && onNavigate) {
+            const t = tickerMatch[1]
+            return <span key={k} onClick={() => { onNavigate('analyze'); /* could set ticker */ }} style={{ color: C.blue, textDecoration: 'underline', cursor: 'pointer' }}>{seg}</span>
+          }
+          return seg
+        })
+      })
+      // Emoji-prefixed lines get special treatment
+      const isHeader = /^[📊⚡📈🎯📍💡📋🌍•]/.test(line.trim())
+      return <div key={i} style={{
+        fontFamily: isHeader ? FM : FR, fontSize: isHeader ? 12 : 13,
+        fontWeight: isHeader ? 600 : 400, color: isHeader ? C.textBright : C.text,
+        lineHeight: 1.6, letterSpacing: isHeader ? 0.5 : 0,
+      }}>{parts}</div>
+    })
+  }
+
+  const defaultQuickActions = [
+    "What's the market doing today?",
+    "Analyze $NVDA",
+    "Best setups right now",
+    "Explain Stage 2 entries",
+  ]
+
+  // Last message's suggestions or defaults
+  const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null
+  const quickActions = (lastMsg?.role === 'assistant' && lastMsg.suggestions?.length > 0)
+    ? lastMsg.suggestions
+    : (messages.length === 0 ? defaultQuickActions : [])
+
+  // ── FLOATING BUBBLE ──
+  if (!isOpen) {
+    return (
+      <button onClick={() => setIsOpen(true)} style={{
+        position: 'fixed', bottom: 76, right: 16, zIndex: 1000,
+        width: 52, height: 52, borderRadius: '50%',
+        background: `linear-gradient(135deg, ${C.panel}, ${C.raised})`,
+        border: `2px solid ${C.blue}44`,
+        boxShadow: `0 0 20px ${C.blue}33, 0 4px 12px rgba(0,0,0,0.4)`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        cursor: 'pointer', transition: 'all 0.3s',
+      }}>
+        <span style={{ fontSize: 22 }}>✨</span>
+      </button>
+    )
+  }
+
+  // ── CHAT PANEL ──
+  return (
+    <div style={{
+      position: 'fixed', bottom: 0, left: 0, right: 0, top: 0, zIndex: 1001,
+      background: 'rgba(2,4,8,0.97)', backdropFilter: 'blur(12px)',
+      display: 'flex', flexDirection: 'column',
+      animation: 'fadeIn 0.2s ease',
+    }}>
+      {/* Header */}
+      <div style={{
+        height: 50, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '0 16px', borderBottom: `1px solid ${C.border}`, flexShrink: 0,
+        background: C.panel,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 18 }}>✨</span>
+          <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 12, letterSpacing: 2, color: C.gold }}>MARKET WIZARD</span>
+          {provider && <span style={{ fontFamily: FM, fontSize: 9, color: C.textDim }}>via {provider}</span>}
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {messages.length > 0 && (
+            <button onClick={clearChat} style={{
+              fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1.5,
+              color: C.textDim, padding: '4px 10px', border: `1px solid ${C.border}`, borderRadius: 4,
+            }}>NEW</button>
+          )}
+          <button onClick={() => setIsOpen(false)} style={{
+            fontFamily: FO, fontWeight: 700, fontSize: 16, color: C.textDim, padding: '0 4px',
+          }}>✕</button>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div ref={el => scrollRef.current = el} style={{
+        flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 10,
+        WebkitOverflowScrolling: 'touch',
+      }}>
+        {/* Welcome message */}
+        {messages.length === 0 && (
+          <div style={{ padding: 16, textAlign: 'center' }}>
+            <div style={{ fontSize: 36, marginBottom: 12 }}>✨</div>
+            <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 14, letterSpacing: 2, color: C.gold, marginBottom: 8 }}>MARKET WIZARD</div>
+            <div style={{ fontFamily: FR, fontSize: 13, color: C.text, lineHeight: 1.6 }}>
+              I'm your MKW trading strategist. Ask me anything about the markets, analyze a ticker, or learn about the convergence framework.
+            </div>
+          </div>
+        )}
+
+        {/* Message bubbles */}
+        {messages.map((msg, i) => (
+          <div key={i} style={{
+            alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
+            maxWidth: '88%',
+          }}>
+            <div style={{
+              background: msg.role === 'user' ? `${C.blue}15` : msg.isError ? `${C.red}15` : C.raised,
+              border: `1px solid ${msg.role === 'user' ? `${C.blue}33` : msg.isError ? `${C.red}33` : C.border}`,
+              borderRadius: msg.role === 'user' ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
+              padding: '10px 14px',
+            }}>
+              {msg.role === 'user' ? (
+                <div style={{ fontFamily: FR, fontSize: 13, color: C.textBright, lineHeight: 1.5 }}>{msg.content}</div>
+              ) : (
+                <div>{renderText(msg.content)}</div>
+              )}
+              {msg.streaming && !msg.content && (
+                <div style={{ display: 'flex', gap: 4, padding: '4px 0' }}>
+                  {[0, 1, 2].map(j => (
+                    <div key={j} style={{
+                      width: 6, height: 6, borderRadius: '50%', background: C.blue,
+                      animation: `pulse 1.2s ease ${j * 0.2}s infinite`,
+                    }} />
+                  ))}
+                </div>
+              )}
+            </div>
+            {/* Meta line */}
+            <div style={{ display: 'flex', gap: 8, marginTop: 2, padding: '0 4px' }}>
+              <span style={{ fontFamily: FM, fontSize: 8, color: C.textDim }}>
+                {msg.ts ? new Date(msg.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+              </span>
+              {msg.provider && <span style={{ fontFamily: FM, fontSize: 8, color: C.textDim }}>via {msg.provider}</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Quick Actions */}
+      {quickActions.length > 0 && !streaming && (
+        <div style={{
+          display: 'flex', gap: 6, padding: '6px 12px', overflowX: 'auto', flexShrink: 0,
+          borderTop: `1px solid ${C.border}22`,
+        }}>
+          {quickActions.map((q, i) => (
+            <button key={i} onClick={() => sendMessage(q)} style={{
+              fontFamily: FM, fontSize: 10, color: C.blue, whiteSpace: 'nowrap',
+              padding: '6px 12px', borderRadius: 16,
+              background: `${C.blue}11`, border: `1px solid ${C.blue}33`,
+              flexShrink: 0,
+            }}>{q}</button>
+          ))}
+        </div>
+      )}
+
+      {/* Input Bar */}
+      <div style={{
+        display: 'flex', gap: 8, padding: '10px 12px',
+        borderTop: `1px solid ${C.border}`, background: C.panel, flexShrink: 0,
+        paddingBottom: 'max(10px, env(safe-area-inset-bottom))',
+      }}>
+        <input
+          ref={el => inputRef.current = el}
+          value={input}
+          onChange={e => setInput(e.target.value.slice(0, 500))}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
+          placeholder={streaming ? 'Wizard is thinking...' : 'Ask the Wizard...'}
+          disabled={streaming}
+          style={{
+            flex: 1, background: C.raised, border: `1px solid ${streaming ? C.border : C.blue}33`,
+            borderRadius: 20, padding: '10px 16px',
+            fontFamily: FR, fontSize: 14, color: C.textBright,
+            opacity: streaming ? 0.5 : 1,
+          }}
+        />
+        <button onClick={() => sendMessage()} disabled={streaming || !input.trim()} style={{
+          width: 40, height: 40, borderRadius: '50%',
+          background: input.trim() && !streaming ? C.blue : C.raised,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          opacity: input.trim() && !streaming ? 1 : 0.3,
+          transition: 'all 0.2s',
+        }}>
+          <span style={{ fontFamily: FM, fontSize: 16, color: input.trim() && !streaming ? C.bg : C.textDim }}>→</span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
 const NAV_ITEMS = [
   { key: 'home', label: 'HOME', icon: '\u2302' },
   { key: 'watch', label: 'WATCH', icon: '\u25C9' },
@@ -1966,6 +2293,9 @@ function AppInner() {
           ))}
         </div>
       )}
+
+      {/* Market Wizard */}
+      <MarketWizard currentPage={page} onNavigate={navigate} />
 
       {/* Bottom Nav */}
       <div style={{
