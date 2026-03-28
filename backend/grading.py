@@ -465,6 +465,8 @@ def grade_trade(
     # Macro (new)
     macro_score: int = 5, event_imminent: bool = False,
     sector_aligned: bool = True,
+    # Qullamaggie dual convergence
+    qullamaggie_breakout_score: int = 0,
     # Meta
     is_short: bool = False,
 ) -> dict:
@@ -506,10 +508,17 @@ def grade_trade(
 
     macro = score_macro_environment(macro_score, event_imminent, sector_aligned)
 
-    # Raw total (108 max: 30+25+20+15+8+5 = 103... actually 30+25+20+15+8+5=103)
-    # Directional=30, Options=25, Timing=20, Risk=15, Flow=8, Macro=5 = 103
+    # Raw total: Directional=30, Options=25, Timing=20, Risk=15, Flow=8, Macro=5 = 103
     raw_total = directional["points"] + options["points"] + timing["points"] + risk["points"] + flow["points"] + macro["points"]
     raw_max = directional["max"] + options["max"] + timing["max"] + risk["max"] + flow["max"] + macro["max"]
+
+    # Qullamaggie Dual Convergence bonus (+5 points to raw total)
+    dual_convergence = False
+    dual_bonus = 0
+    if qullamaggie_breakout_score >= 70 and conv_score >= 20:
+        dual_convergence = True
+        dual_bonus = 5
+        raw_total += dual_bonus
 
     # Normalize to 100
     total = round(raw_total / max(raw_max, 1) * 100)
@@ -532,6 +541,7 @@ def grade_trade(
 
     grade_info = score_to_grade(total)
 
+    dual_label = " + DUAL CONVERGENCE (+5)" if dual_convergence else ""
     return {
         "totalScore": total,
         "maxScore": 100,
@@ -546,9 +556,11 @@ def grade_trade(
             "flow": flow,
             "macro": macro,
         },
+        "dualConvergence": dual_convergence,
+        "dualConvergenceBonus": dual_bonus,
         "disqualified": disqualified,
         "disqualifyReasons": disqualify_reasons,
-        "summary": f"Dir: {directional['points']}/{directional['max']} | Opt: {options['points']}/{options['max']} | Tim: {timing['points']}/{timing['max']} | Risk: {risk['points']}/{risk['max']} | Flow: {flow['points']}/{flow['max']} | Macro: {macro['points']}/{macro['max']} = {total}/100 = {grade_info['grade']}",
+        "summary": f"Dir: {directional['points']}/{directional['max']} | Opt: {options['points']}/{options['max']} | Tim: {timing['points']}/{timing['max']} | Risk: {risk['points']}/{risk['max']} | Flow: {flow['points']}/{flow['max']} | Macro: {macro['points']}/{macro['max']}{dual_label} = {total}/100 = {grade_info['grade']}",
         "stopPrice": round(stop_price, 2),
         "target1": round(target1, 2),
         "target2": round(target2, 2),

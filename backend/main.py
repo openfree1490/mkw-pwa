@@ -39,6 +39,9 @@ from journal import (
     add_trade, update_trade, delete_trade, get_trades, get_trade,
     compute_analytics,
 )
+import qullamaggie as qull
+from trade_rules import generate_trade_plan, calculate_r_multiple
+from indicators import get_qullamaggie_snapshot
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("mkw")
@@ -740,6 +743,26 @@ def analyze_ticker(ticker: str, spy_df: pd.DataFrame, mkt: dict) -> Optional[dic
         event_imminent = any(e.get("imminent") for e in events)
         sector_aligned = True  # Default; could check sector-specific context
 
+        # Qullamaggie momentum setup analysis
+        qull_data = {}
+        qull_breakout_score = 0
+        try:
+            mcap = fund.get("marketCap", 0)
+            qull_data = qull.analyze_qullamaggie(ticker, df, fundamentals=fund, market_cap=mcap)
+            bo = qull_data.get("breakout")
+            if bo and bo.get("passed"):
+                qull_breakout_score = bo.get("score", 0)
+            # Dual convergence: +5 bonus if MKW conv >= 20 AND Qullamaggie breakout >= 70
+            dual = qull.check_dual_convergence(conv_s, 23, qull_breakout_score)
+            if dual["is_dual_convergence"]:
+                conv_s += dual["bonus_points"]
+                conv_z = _recalc_zone(conv_s, 23)
+                qull_data["dual_convergence"] = True
+            else:
+                qull_data["dual_convergence"] = False
+        except Exception as e:
+            log.warning(f"Qullamaggie scan {ticker}: {e}")
+
         # Quick grade (without full options data for speed)
         is_short = wein["stage"] in ("3", "4A", "4B")
         quick_grade = grade_trade(
@@ -751,6 +774,7 @@ def analyze_ticker(ticker: str, spy_df: pd.DataFrame, mkt: dict) -> Optional[dic
             short_vol_ratio=svr / 100 if svr else 0.5,
             macro_score=macro_sc, event_imminent=event_imminent,
             sector_aligned=sector_aligned,
+            qullamaggie_breakout_score=qull_breakout_score,
         )
 
         return {
@@ -779,6 +803,7 @@ def analyze_ticker(ticker: str, spy_df: pd.DataFrame, mkt: dict) -> Optional[dic
             },
             "conv": {"score": conv_s, "max": 23, "zone": conv_z},
             "finra": finra_data,
+            "qullamaggie": qull_data,
             "shortConv": {
                 "score": short_s, "max": 22, "zone": short_z,
                 "invTpl": inv_criteria, "invScore": inv_score,
@@ -1044,6 +1069,34 @@ def generate_programmatic_brief(watchlist_data, breadth, threats):
             f"Grade breakdown: {gd.get('summary', 'N/A')}",
         ]
 
+    # Qullamaggie setups section
+    qull_triggering = [s for s in watchlist_data if s.get("qull_any_triggering")]
+    qull_watching = [s for s in watchlist_data if s.get("qull_any_setup") and not s.get("qull_any_triggering")]
+    dual_conv = [s for s in watchlist_data if s.get("qull_dual_convergence")]
+
+    if dual_conv:
+        lines += ["", "## DUAL CONVERGENCE (MAXIMUM CONVICTION)"]
+        for s in dual_conv:
+            bo_score = (s.get("qullamaggie") or {}).get("breakout", {}).get("score", 0)
+            lines.append(
+                f"- **{s.get('ticker','?')}**: MKW {s.get('convergence_score',0)}/23 + "
+                f"Qullamaggie Breakout {bo_score}/100 = DUAL CONVERGENCE"
+            )
+
+    if qull_triggering:
+        lines += ["", "## QULLAMAGGIE SETUPS — TRIGGERING NOW"]
+        for s in qull_triggering[:5]:
+            for setup in s.get("qull_setups_summary", []):
+                if setup.get("triggering"):
+                    lines.append(f"- **{s.get('ticker','?')}** [{setup.get('type','')}] Score {setup.get('score',0)}/100 — {setup.get('detail','')}")
+
+    if qull_watching:
+        lines += ["", "## QULLAMAGGIE SETUPS — WATCHING"]
+        for s in qull_watching[:5]:
+            best = s.get("qull_best_setup", "")
+            score = s.get("qull_best_score", 0)
+            lines.append(f"- **{s.get('ticker','?')}** [{best}] Score {score}/100")
+
     if threats:
         lines += ["", "## DIVERGENCE ALERTS"]
         for t in threats[:3]:
@@ -1052,8 +1105,14 @@ def generate_programmatic_brief(watchlist_data, breadth, threats):
     lines += [
         "", "## ACTION ITEMS",
         f"1. Review **{len(conv)} convergence** and **{len(sec)} secondary** setups",
-        "2. Check entry timing — prioritize EMA Crossback and Pop phases",
-        f"3. Monitor VIX ({vix}) for position sizing guidance",
+    ]
+    if dual_conv:
+        lines.append(f"2. **{len(dual_conv)} DUAL CONVERGENCE** setups — highest conviction, prioritize these")
+    if qull_triggering:
+        lines.append(f"3. **{len(qull_triggering)} Qullamaggie setups TRIGGERING** — check entry timing now")
+    lines += [
+        f"{'4' if dual_conv or qull_triggering else '2'}. Check entry timing — prioritize EMA Crossback and Pop phases",
+        f"{'5' if dual_conv or qull_triggering else '3'}. Monitor VIX ({vix}) for position sizing guidance",
     ]
 
     return "\n".join(lines)
@@ -1179,6 +1238,30 @@ SCREENER_PRESETS = {
         "description": "SVR spike + rising trend — potential institutional selling",
         "filters": {},
         "special": "distribution",
+    },
+    "qull_breakouts": {
+        "name": "Qullamaggie Breakouts",
+        "description": "Big prior move + orderly pullback + tight consolidation — breakout watch",
+        "filters": {},
+        "special": "qull_breakouts",
+    },
+    "qull_parabolic": {
+        "name": "Qullamaggie Parabolic",
+        "description": "Overextended stocks (short setups) and oversold bounces (long setups)",
+        "filters": {},
+        "special": "qull_parabolic",
+    },
+    "qull_ep": {
+        "name": "Qullamaggie Episodic Pivots",
+        "description": "Big gap + big volume + prior neglect — catalyst-driven moves",
+        "filters": {},
+        "special": "qull_ep",
+    },
+    "dual_convergence": {
+        "name": "Dual Convergence (MKW + Qullamaggie)",
+        "description": "Stocks passing BOTH MKW convergence AND Qullamaggie breakout — maximum conviction",
+        "filters": {},
+        "special": "dual_convergence",
     },
 }
 
@@ -1444,6 +1527,14 @@ def _normalize_stock(s: dict) -> dict:
         "srLevels": s.get("srLevels", []),
         "shortConv": s.get("shortConv", {}),
         "finra": s.get("finra", {}),
+        # Qullamaggie momentum data
+        "qullamaggie": s.get("qullamaggie", {}),
+        "qull_best_setup": (s.get("qullamaggie") or {}).get("best_setup"),
+        "qull_best_score": (s.get("qullamaggie") or {}).get("best_score", 0),
+        "qull_any_setup": (s.get("qullamaggie") or {}).get("any_setup", False),
+        "qull_any_triggering": (s.get("qullamaggie") or {}).get("any_triggering", False),
+        "qull_dual_convergence": (s.get("qullamaggie") or {}).get("dual_convergence", False),
+        "qull_setups_summary": (s.get("qullamaggie") or {}).get("setups_summary", []),
     }
     return flat
 
@@ -1818,6 +1909,44 @@ def get_screener(
         if "vcp" in p: vcp = p["vcp"]
         if "zone" in p: zone = p["zone"]
         if "short_mode" in p: short_mode = p["short_mode"]
+
+    # Handle Qullamaggie special presets
+    special = SCREENER_PRESETS.get(preset, {}).get("special", "") if preset else ""
+    if special in ("qull_breakouts", "qull_parabolic", "qull_ep", "dual_convergence"):
+        cached_wl = cache_get("watchlist", CACHE_WATCHLIST * 4)
+        stocks = (cached_wl or {}).get("stocks", [])
+        if not stocks:
+            resp = _build_watchlist()
+            stocks = (resp or {}).get("stocks", [])
+        qull_filtered = []
+        for s in stocks:
+            qull = s.get("qullamaggie", {})
+            if not qull:
+                continue
+            if special == "qull_breakouts":
+                bo = qull.get("breakout")
+                if bo and bo.get("passed"):
+                    s = {**s, "qull_sort_score": bo.get("score", 0)}
+                    qull_filtered.append(s)
+            elif special == "qull_parabolic":
+                para = qull.get("parabolic")
+                if para and (para.get("short_setup") or para.get("long_bounce")):
+                    s = {**s, "qull_sort_score": max(para.get("short_score", 0), para.get("long_score", 0))}
+                    qull_filtered.append(s)
+            elif special == "qull_ep":
+                ep = qull.get("episodic_pivot")
+                if ep and ep.get("passed"):
+                    s = {**s, "qull_sort_score": ep.get("score", 0)}
+                    qull_filtered.append(s)
+            elif special == "dual_convergence":
+                if s.get("qull_dual_convergence"):
+                    s = {**s, "qull_sort_score": s.get("grade_score", 0)}
+                    qull_filtered.append(s)
+        qull_filtered.sort(key=lambda x: x.get("qull_sort_score", 0), reverse=True)
+        return to_python({
+            "stocks": qull_filtered, "total": len(qull_filtered),
+            "preset": preset, "presetName": SCREENER_PRESETS.get(preset, {}).get("name", "Custom"),
+        })
 
     cached = cache_get("watchlist", CACHE_WATCHLIST * 4)
     if cached:
@@ -2308,6 +2437,150 @@ def portfolio_correlation():
         "sectors": sector_pcts, "positions": pos_data, "warnings": warnings,
         "totalPositions": total_positions,
     })
+
+# ─────────────────────────────────────────────
+# QULLAMAGGIE ENDPOINTS
+# ─────────────────────────────────────────────
+
+CACHE_QULL = 600  # 10 min
+
+@app.get("/api/qullamaggie/scan")
+def qullamaggie_scan():
+    """Run all three Qullamaggie scanners across the watchlist universe."""
+    cached = cache_get("qull_scan", CACHE_QULL)
+    if cached:
+        return cached
+
+    try:
+        # Get daily data for all watchlist tickers
+        daily_data = {}
+        fund_data = {}
+        for ticker in WATCHLIST:
+            try:
+                df = fetch_ohlcv(ticker, "2y")
+                if df is not None and len(df) >= 60:
+                    daily_data[ticker] = df
+                fund = fetch_fundamentals(ticker)
+                fund_data[ticker] = fund
+                time.sleep(0.2)
+            except Exception:
+                continue
+
+        results = qull.run_qullamaggie_scan(
+            list(daily_data.keys()), daily_data, fund_data
+        )
+        results["lastUpdated"] = datetime.utcnow().isoformat()
+        resp = to_python(results)
+        cache_set("qull_scan", resp)
+        return resp
+    except Exception as e:
+        log.error(f"Qullamaggie scan error: {e}")
+        return {"error": str(e), "breakouts": [], "parabolic_shorts": [],
+                "parabolic_longs": [], "episodic_pivots": [], "all_setups": []}
+
+
+@app.get("/api/qullamaggie/{ticker}")
+def qullamaggie_ticker(ticker: str):
+    """Run all three Qullamaggie scanners on a single ticker with trade plan."""
+    ticker = ticker.upper().strip()
+    key = f"qull_{ticker}"
+    cached = cache_get(key, CACHE_QULL)
+    if cached:
+        return cached
+
+    try:
+        df = fetch_ohlcv(ticker, "2y")
+        if df is None or len(df) < 60:
+            raise HTTPException(404, f"Insufficient data for {ticker}")
+
+        fund = fetch_fundamentals(ticker)
+        mcap = fund.get("marketCap", 0)
+        analysis = qull.analyze_qullamaggie(ticker, df, fundamentals=fund, market_cap=mcap)
+
+        # Generate trade plans for detected setups
+        trade_plans = []
+        # Calculate ATR for trade plan
+        tr = pd.concat([
+            df['High'] - df['Low'],
+            (df['High'] - df['Close'].shift(1)).abs(),
+            (df['Low'] - df['Close'].shift(1)).abs()
+        ], axis=1).max(axis=1)
+        atr = float(tr.rolling(14).mean().iloc[-1])
+        current_price = float(df['Close'].iloc[-1])
+        day_low = float(df['Low'].iloc[-1])
+
+        bo = analysis.get('breakout')
+        if bo and bo.get('passed'):
+            plan = generate_trade_plan('BREAKOUT', {
+                **bo, 'day_low': day_low
+            }, current_price, atr)
+            if plan:
+                trade_plans.append(plan)
+
+        para = analysis.get('parabolic')
+        if para:
+            if para.get('short_setup'):
+                recent_high = float(df['High'].tail(20).max())
+                plan = generate_trade_plan('PARABOLIC_SHORT', {
+                    **para, 'recent_high': recent_high
+                }, current_price, atr)
+                if plan:
+                    trade_plans.append(plan)
+            if para.get('long_bounce'):
+                plan = generate_trade_plan('PARABOLIC_LONG', para, current_price, atr)
+                if plan:
+                    trade_plans.append(plan)
+
+        ep = analysis.get('episodic_pivot')
+        if ep and ep.get('passed'):
+            plan = generate_trade_plan('EPISODIC_PIVOT', {
+                **ep, 'day_low': day_low
+            }, current_price, atr)
+            if plan:
+                trade_plans.append(plan)
+
+        # Get Qullamaggie indicators snapshot
+        indicators = get_qullamaggie_snapshot(df)
+
+        result = {
+            **analysis,
+            'trade_plans': trade_plans,
+            'indicators': indicators,
+            'atr': round(atr, 2),
+            'current_price': round(current_price, 2),
+        }
+
+        resp = to_python(result)
+        cache_set(key, resp)
+        return resp
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"Qullamaggie {ticker} error: {e}")
+        return {"error": str(e), "ticker": ticker}
+
+
+@app.post("/api/qullamaggie/archive")
+async def qullamaggie_archive_add(request: Request):
+    """Add a setup to the Qullamaggie historical archive."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "Invalid JSON")
+    return qull.archive_setup(body)
+
+
+@app.get("/api/qullamaggie/archive")
+def qullamaggie_archive_list(setup_type: str = "", ticker: str = "", limit: int = 100):
+    """List archived Qullamaggie setups."""
+    return {"entries": qull.get_archive(setup_type, ticker, limit)}
+
+
+@app.get("/api/qullamaggie/archive/analytics")
+def qullamaggie_archive_analytics():
+    """Performance analytics from the Qullamaggie setup archive."""
+    return qull.archive_analytics()
+
 
 # ─────────────────────────────────────────────
 # DEBUG ENDPOINT

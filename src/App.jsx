@@ -439,6 +439,49 @@ function HomePage() {
         </Panel>
       )}
 
+      {/* Qullamaggie Momentum Alerts */}
+      {(() => {
+        const qullTriggering = sorted.filter(s => s.qull_any_triggering)
+        const qullDual = sorted.filter(s => s.qull_dual_convergence)
+        const qullSetups = sorted.filter(s => s.qull_any_setup && !s.qull_any_triggering)
+        if (qullDual.length === 0 && qullTriggering.length === 0 && qullSetups.length === 0) return null
+        return (
+          <Panel borderColor={qullDual.length > 0 ? C.gold : qullTriggering.length > 0 ? C.gold : C.blue}>
+            <SectionHeader title="MOMENTUM SETUPS" right={<Mono size={10} color={C.gold}>{qullTriggering.length + qullDual.length} active</Mono>} />
+            <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {qullDual.map((s, i) => (
+                <div key={`dc-${i}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: `1px solid ${C.border}22` }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontFamily: FO, fontWeight: 900, fontSize: 13, color: C.gold, textShadow: glow(C.gold, 8) }}>{s.ticker}</span>
+                    <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1, color: C.bg, background: C.gold, padding: '1px 5px', borderRadius: 2 }}>DUAL CONV</span>
+                  </div>
+                  <Mono size={10} color={C.gold}>{s.qull_best_score}/100</Mono>
+                </div>
+              ))}
+              {qullTriggering.filter(s => !s.qull_dual_convergence).map((s, i) => (
+                <div key={`tr-${i}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: `1px solid ${C.border}22` }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontFamily: FO, fontWeight: 900, fontSize: 13, color: C.textBright }}>{s.ticker}</span>
+                    <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1, color: C.bg, background: C.green, padding: '1px 5px', borderRadius: 2 }}>TRIGGERING</span>
+                    <Mono size={9} color={C.textDim}>{s.qull_best_setup?.replace('_', ' ')}</Mono>
+                  </div>
+                  <Mono size={10} color={C.green}>{s.qull_best_score}/100</Mono>
+                </div>
+              ))}
+              {qullSetups.slice(0, 3).map((s, i) => (
+                <div key={`ws-${i}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', borderBottom: `1px solid ${C.border}11` }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Mono size={11}>{s.ticker}</Mono>
+                    <Mono size={9} color={C.textDim}>{s.qull_best_setup?.replace('_', ' ')}</Mono>
+                  </div>
+                  <Mono size={9} color={C.textDim}>{s.qull_best_score}/100</Mono>
+                </div>
+              ))}
+            </div>
+          </Panel>
+        )
+      })()}
+
       {/* Threats */}
       {threats && Array.isArray(threats) && threats.length > 0 && (
         <Panel borderColor={C.red}>
@@ -496,6 +539,9 @@ function StockCard({ s, expanded, onToggle, techCache, srCache, onLoadDetails })
           {s.finra?.svr_today != null && <Mono size={10} color={s.finra.color === 'green' ? C.green : s.finra.color === 'red' ? C.red : s.finra.color === 'yellow' ? C.gold : C.textDim}>SVR: {s.finra.svr_today}%</Mono>}
         </div>
         {(s.vcp || s.vcp_detected) && <div style={{ marginTop: 4 }}><Mono size={10} color={C.purple}>VCP Detected — {s.vcp_contractions || s.contractions || '?'} contractions</Mono></div>}
+        {s.qull_dual_convergence && <div style={{ marginTop: 4 }}><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1, color: C.bg, background: C.gold, padding: '1px 6px', borderRadius: 2 }}>DUAL CONVERGENCE</span></div>}
+        {s.qull_any_triggering && !s.qull_dual_convergence && <div style={{ marginTop: 4 }}><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1, color: C.bg, background: C.green, padding: '1px 6px', borderRadius: 2 }}>Q: {s.qull_best_setup?.replace('_', ' ')} TRIGGERING</span><Mono size={9} color={C.textDim}> {s.qull_best_score}/100</Mono></div>}
+        {s.qull_any_setup && !s.qull_any_triggering && <div style={{ marginTop: 4 }}><Mono size={9} color={C.blue}>Q: {s.qull_best_setup?.replace('_', ' ')} ({s.qull_best_score}/100)</Mono></div>}
         {s.flags && s.flags.length > 0 && <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>{s.flags.map((f, i) => <span key={i} style={{ fontFamily: FM, fontSize: 9, color: C.gold, background: `${C.gold}11`, border: `1px solid ${C.gold}33`, borderRadius: 3, padding: '1px 6px' }}>{f}</span>)}</div>}
       </div>
       {isOpen && (
@@ -952,6 +998,7 @@ function AnalyzePage() {
   const [trades, setTrades] = useState(null)
   const [tech, setTech] = useState(null)
   const [sr, setSr] = useState(null)
+  const [qullData, setQullData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
@@ -961,14 +1008,15 @@ function AnalyzePage() {
     setSearchTicker(t)
     setLoading(true); setError(null)
     try {
-      const [a, o, tr, te, s] = await Promise.all([
+      const [a, o, tr, te, s, q] = await Promise.all([
         api(`/api/analyze/${t}`).catch(() => null),
         api(`/api/options-analysis/${t}`).catch(() => null),
         api(`/api/trade-ideas/${t}`).catch(() => null),
         api(`/api/technicals/${t}`).catch(() => null),
         api(`/api/support-resistance/${t}`).catch(() => null),
+        api(`/api/qullamaggie/${t}`).catch(() => null),
       ])
-      setAnalysis(a); setOptions(o); setTrades(tr); setTech(te); setSr(s)
+      setAnalysis(a); setOptions(o); setTrades(tr); setTech(te); setSr(s); setQullData(q)
     } catch (e) { setError(e.message) }
     finally { setLoading(false) }
   }
@@ -1395,7 +1443,111 @@ function AnalyzePage() {
             </Collapsible>
           )}
 
-          {/* Section 8: Detailed Thesis */}
+          {/* Section 8: Qullamaggie Momentum Setup Analysis */}
+          {qullData && !qullData.error && (
+            <Collapsible title="QULLAMAGGIE MOMENTUM SETUP" borderColor={qullData.any_triggering ? C.gold : qullData.any_setup ? C.blue : C.border}
+              right={qullData.best_setup ? <Mono size={10} color={qullData.any_triggering ? C.gold : C.blue}>{qullData.best_setup} ({qullData.best_score}/100)</Mono> : <Mono size={10} color={C.textDim}>NO SETUP</Mono>}>
+              <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {qullData.dual_convergence && (
+                  <div style={{ padding: 10, background: `${C.gold}15`, border: `1px solid ${C.gold}44`, borderRadius: 6 }}>
+                    <div style={{ fontFamily: FO, fontWeight: 900, fontSize: 11, letterSpacing: 2, color: C.gold, textShadow: glow(C.gold, 12) }}>DUAL CONVERGENCE — MAXIMUM CONVICTION</div>
+                    <div style={{ fontFamily: FR, fontSize: 12, color: C.text, marginTop: 4 }}>MKW convergence + Qullamaggie breakout both triggered. Full position size.</div>
+                  </div>
+                )}
+                {/* Setup summaries */}
+                {(qullData.setups_summary || []).length > 0 ? (qullData.setups_summary || []).map((s, i) => {
+                  const typeColor = s.type === 'BREAKOUT' ? C.green : s.type === 'EPISODIC_PIVOT' ? C.gold : s.type === 'PARABOLIC_SHORT' ? C.red : C.blue
+                  return (
+                    <div key={i} style={{ background: C.raised, borderRadius: 6, padding: 10, border: `1px solid ${typeColor}33` }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                        <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 10, letterSpacing: 2, color: typeColor }}>{s.type?.replace('_', ' ')}</span>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          <Mono size={10} color={typeColor}>{s.score}/100</Mono>
+                          {s.triggering && <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1, color: C.bg, background: C.gold, padding: '1px 6px', borderRadius: 3 }}>TRIGGERING</span>}
+                        </div>
+                      </div>
+                      <div style={{ fontFamily: FR, fontSize: 12, color: C.text, lineHeight: 1.5 }}>{s.detail}</div>
+                    </div>
+                  )
+                }) : (
+                  <div style={{ fontFamily: FR, fontSize: 12, color: C.textDim }}>
+                    No Qullamaggie setup detected. Reasons:
+                    {qullData.breakout && !qullData.breakout.passed && (
+                      <div style={{ fontFamily: FM, fontSize: 10, color: C.textDim, marginTop: 4 }}>
+                        Breakout: Prior move {qullData.breakout.prior_move_pct}% (need 30%+), Pullback {qullData.breakout.pullback_depth_pct}%, ADR contraction {qullData.breakout.adr_contraction}%
+                      </div>
+                    )}
+                    {qullData.episodic_pivot && !qullData.episodic_pivot.passed && (
+                      <div style={{ fontFamily: FM, fontSize: 10, color: C.textDim, marginTop: 2 }}>
+                        EP: Day move {qullData.episodic_pivot.day_move_pct}% (need 10%+), Volume {qullData.episodic_pivot.volume_ratio}x (need 3x+)
+                      </div>
+                    )}
+                  </div>
+                )}
+                {/* Trade Plans */}
+                {(qullData.trade_plans || []).map((plan, i) => (
+                  <div key={i} style={{ background: C.bg, borderRadius: 6, padding: 10, border: `1px solid ${C.border}` }}>
+                    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.gold, marginBottom: 6 }}>
+                      {plan.setup_type?.replace('_', ' ')} TRADE PLAN
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 8 }}>
+                      <div style={{ background: C.raised, borderRadius: 4, padding: 6 }}>
+                        <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1.5, color: C.textDim }}>ENTRY</div>
+                        <Mono size={11} color={C.green}>${plan.entry_price}</Mono>
+                      </div>
+                      <div style={{ background: C.raised, borderRadius: 4, padding: 6 }}>
+                        <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1.5, color: C.textDim }}>STOP</div>
+                        <Mono size={11} color={C.red}>${plan.initial_stop}</Mono>
+                      </div>
+                      <div style={{ background: C.raised, borderRadius: 4, padding: 6 }}>
+                        <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1.5, color: C.textDim }}>RISK/SHARE</div>
+                        <Mono size={11}>${plan.risk_per_share}</Mono>
+                      </div>
+                    </div>
+                    {plan.targets && (
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+                        {Object.entries(plan.targets).map(([k, v]) => (
+                          <div key={k} style={{ background: C.raised, borderRadius: 4, padding: '3px 8px' }}>
+                            <Mono size={9} color={C.textDim}>{k}: </Mono>
+                            <Mono size={10} color={C.green}>{typeof v === 'number' ? `$${v}` : v}</Mono>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {(plan.management || []).map((rule, j) => (
+                      <div key={j} style={{ fontFamily: FR, fontSize: 11, color: C.text, padding: '2px 0', borderBottom: `1px solid ${C.border}11` }}>{rule}</div>
+                    ))}
+                    <div style={{ fontFamily: FM, fontSize: 10, color: C.textDim, marginTop: 6 }}>{plan.entry_trigger}</div>
+                  </div>
+                ))}
+                {/* Qullamaggie Indicators Snapshot */}
+                {qullData.indicators && Object.keys(qullData.indicators).length > 0 && (
+                  <div style={{ marginTop: 4 }}>
+                    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim, marginBottom: 4 }}>MOMENTUM INDICATORS</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4 }}>
+                      {[
+                        { l: 'ADR 5D', v: qullData.indicators.adr_5d },
+                        { l: 'ADR 20D', v: qullData.indicators.adr_20d },
+                        { l: 'VOL RATIO', v: qullData.indicators.vol_ratio },
+                        { l: 'UP STREAK', v: qullData.indicators.consecutive_up },
+                        { l: 'EXT 10SMA', v: qullData.indicators.ext_from_10sma },
+                        { l: 'EXT 20SMA', v: qullData.indicators.ext_from_20sma },
+                        { l: 'MOVE 21D', v: qullData.indicators.move_21d_pct },
+                        { l: 'MOVE 63D', v: qullData.indicators.move_63d_pct },
+                      ].filter(x => x.v != null).map(({ l, v }) => (
+                        <div key={l} style={{ background: C.raised, borderRadius: 3, padding: 4, textAlign: 'center' }}>
+                          <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 6, letterSpacing: 1, color: C.textDim }}>{l}</div>
+                          <Mono size={9}>{typeof v === 'number' ? v.toFixed(1) : v}</Mono>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Collapsible>
+          )}
+
+          {/* Section 9: Detailed Thesis */}
           {(trades?.thesis || thesis) && (
             <Collapsible title="DETAILED THESIS" borderColor={C.textDim} defaultOpen>
               <div style={{ padding: 12 }}>
@@ -1419,6 +1571,127 @@ function AnalyzePage() {
       )}
 
       {!loading && !searchTicker && <EmptyState text="Enter a ticker above to begin deep analysis." />}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PAGE: MOMENTUM (Qullamaggie)
+// ═══════════════════════════════════════════════════════════════════════════
+function MomentumPage() {
+  const [scanData, setScanData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [activeTab, setActiveTab] = useState('BREAKOUTS')
+
+  const doScan = async () => {
+    setLoading(true); setError(null)
+    try {
+      const data = await api('/api/qullamaggie/scan')
+      setScanData(data)
+    } catch (e) { setError(e.message) }
+    finally { setLoading(false) }
+  }
+
+  useEffect(() => { doScan() }, [])
+
+  const tabs = ['BREAKOUTS', 'PARABOLIC', 'EP', 'ALL']
+
+  const getTabItems = () => {
+    if (!scanData) return []
+    switch (activeTab) {
+      case 'BREAKOUTS': return scanData.breakouts || []
+      case 'PARABOLIC': return [...(scanData.parabolic_shorts || []), ...(scanData.parabolic_longs || [])]
+      case 'EP': return scanData.episodic_pivots || []
+      case 'ALL': return scanData.all_setups || []
+      default: return []
+    }
+  }
+
+  const items = getTabItems()
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ fontFamily: FO, fontWeight: 900, fontSize: 14, color: C.gold, letterSpacing: 2, textShadow: glow(C.gold, 8) }}>MOMENTUM</div>
+        <button onClick={doScan} style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.blue, padding: '6px 12px', border: `1px solid ${C.blue}44`, borderRadius: 4 }}>RESCAN</button>
+      </div>
+      <div style={{ fontFamily: FR, fontSize: 11, color: C.textDim, marginTop: -6 }}>Qullamaggie Breakouts · Parabolic · Episodic Pivots</div>
+
+      {loading && <Loading text="SCANNING MOMENTUM SETUPS..." />}
+      {error && <ErrorMsg msg={error} onRetry={doScan} />}
+
+      {!loading && scanData && (
+        <>
+          {/* Summary stats */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+            {[
+              { l: 'BREAKOUTS', v: (scanData.breakouts || []).length, c: C.green },
+              { l: 'PARA SHORT', v: (scanData.parabolic_shorts || []).length, c: C.red },
+              { l: 'PARA LONG', v: (scanData.parabolic_longs || []).length, c: C.blue },
+              { l: 'EP', v: (scanData.episodic_pivots || []).length, c: C.gold },
+            ].map(({ l, v, c }) => (
+              <div key={l} style={{ background: C.panel, borderRadius: 6, padding: 8, textAlign: 'center', border: `1px solid ${v > 0 ? c + '44' : C.border}` }}>
+                <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1.5, color: C.textDim }}>{l}</div>
+                <div style={{ fontFamily: FO, fontWeight: 900, fontSize: 20, color: v > 0 ? c : C.textDim, textShadow: v > 0 ? glow(c, 8) : 'none' }}>{v}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Tabs */}
+          <TabBar tabs={tabs} active={activeTab} onSelect={setActiveTab} />
+
+          {/* Results */}
+          {items.length === 0 && <EmptyState text={`No ${activeTab.toLowerCase()} setups detected in the current universe.`} />}
+
+          {items.map((item, i) => {
+            const setupType = item.setup || item.type || 'UNKNOWN'
+            const score = item.score || item.short_score || item.long_score || 0
+            const triggering = item.triggering || item.short_triggering || item.long_triggering || false
+            const ticker = item.ticker || '???'
+            const typeColor = setupType.includes('BREAKOUT') ? C.green
+              : setupType.includes('EPISODIC') || setupType.includes('EP') ? C.gold
+              : setupType.includes('SHORT') ? C.red : C.blue
+
+            return (
+              <Panel key={`${ticker}-${i}`} borderColor={triggering ? C.gold + '88' : typeColor + '44'} glow={triggering ? C.gold : undefined}>
+                <div style={{ padding: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontFamily: FO, fontWeight: 900, fontSize: 16, color: C.textBright }}>{ticker}</span>
+                      <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1.5, color: typeColor, padding: '1px 6px', border: `1px solid ${typeColor}44`, borderRadius: 3, background: `${typeColor}11` }}>
+                        {setupType.replace('_', ' ')}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Mono size={12} color={typeColor}>{score}/100</Mono>
+                      {triggering && <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1, color: C.bg, background: C.gold, padding: '2px 8px', borderRadius: 3, textShadow: 'none' }}>TRIGGERING</span>}
+                    </div>
+                  </div>
+                  <div style={{ fontFamily: FR, fontSize: 12, color: C.text, lineHeight: 1.5 }}>{item.detail || ''}</div>
+                  {/* Key metrics row */}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+                    {item.prior_move_pct != null && <Mono size={9} color={C.textDim}>Move: +{item.prior_move_pct}%</Mono>}
+                    {item.pullback_depth_pct != null && <Mono size={9} color={C.textDim}>PB: {item.pullback_depth_pct}%</Mono>}
+                    {item.volume_ratio != null && <Mono size={9} color={item.volume_ratio >= 1.5 ? C.green : C.textDim}>Vol: {item.volume_ratio}x</Mono>}
+                    {item.surge_pct != null && <Mono size={9} color={C.textDim}>Surge: +{item.surge_pct}%</Mono>}
+                    {item.consecutive_up > 0 && <Mono size={9} color={C.textDim}>{item.consecutive_up} up days</Mono>}
+                    {item.extension_from_10sma != null && <Mono size={9} color={C.textDim}>Ext 10SMA: {item.extension_from_10sma}%</Mono>}
+                    {item.day_move_pct != null && <Mono size={9} color={C.textDim}>Today: +{item.day_move_pct}%</Mono>}
+                    {item.gap_pct != null && item.gap_pct >= 5 && <Mono size={9} color={C.gold}>Gap: +{item.gap_pct}%</Mono>}
+                    {item.adr_contraction != null && <Mono size={9} color={C.textDim}>ADR: {item.adr_contraction}%</Mono>}
+                    {item.consolidation_high != null && <Mono size={9} color={C.textDim}>Pivot: ${item.consolidation_high}</Mono>}
+                  </div>
+                </div>
+              </Panel>
+            )
+          })}
+
+          <div style={{ fontFamily: FM, fontSize: 9, color: C.textDim, textAlign: 'center', marginTop: 4 }}>
+            Scanned {scanData.total_scanned || 0} tickers · {scanData.total_with_setup || 0} with setups · Updated {scanData.lastUpdated ? new Date(scanData.lastUpdated).toLocaleTimeString() : '—'}
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -1658,17 +1931,17 @@ function JournalPage() {
   const { data: analytics, loading: al, reload: ar } = useFetch('/api/journal/analytics')
   const [showForm, setShowForm] = useState(false)
   const [showAnalytics, setShowAnalytics] = useState(false)
-  const [form, setForm] = useState({ ticker: '', direction: 'LONG', entry_price: '', exit_price: '', entry_date: '', exit_date: '', shares: '', grade: '', zone: '', phase: '', notes: '' })
+  const [form, setForm] = useState({ ticker: '', direction: 'LONG', entry_price: '', exit_price: '', entry_date: '', exit_date: '', shares: '', grade: '', zone: '', phase: '', setupType: '', rMultiple: '', notes: '' })
 
   const trades = Array.isArray(journal) ? journal : (journal?.trades || journal?.entries || journal?.journal || [])
   const stats = analytics || {}
 
   const handleAdd = async () => {
     try {
-      const body = { ...form, entry_price: Number(form.entry_price) || 0, exit_price: Number(form.exit_price) || undefined, shares: Number(form.shares) || 1 }
+      const body = { ...form, entry_price: Number(form.entry_price) || 0, exit_price: Number(form.exit_price) || undefined, shares: Number(form.shares) || 1, rMultiple: form.rMultiple ? Number(form.rMultiple) : undefined }
       await apiPost('/api/journal', body)
       setShowForm(false)
-      setForm({ ticker: '', direction: 'LONG', entry_price: '', exit_price: '', entry_date: '', exit_date: '', shares: '', grade: '', zone: '', phase: '', notes: '' })
+      setForm({ ticker: '', direction: 'LONG', entry_price: '', exit_price: '', entry_date: '', exit_date: '', shares: '', grade: '', zone: '', phase: '', setupType: '', rMultiple: '', notes: '' })
       jr(); ar()
     } catch {}
   }
@@ -1716,6 +1989,16 @@ function JournalPage() {
               <input placeholder="Grade (e.g. AA)" value={form.grade} onChange={e => setForm({ ...form, grade: e.target.value.toUpperCase() })} style={inputStyle} />
               <input placeholder="Zone" value={form.zone} onChange={e => setForm({ ...form, zone: e.target.value.toUpperCase() })} style={inputStyle} />
               <input placeholder="Phase" value={form.phase} onChange={e => setForm({ ...form, phase: e.target.value })} style={inputStyle} />
+              <select value={form.setupType} onChange={e => setForm({ ...form, setupType: e.target.value })} style={inputStyle}>
+                <option value="">Setup Type</option>
+                <option value="MKW_CONVERGENCE">MKW Convergence</option>
+                <option value="DUAL_CONVERGENCE">Dual Convergence</option>
+                <option value="BREAKOUT">Q: Breakout</option>
+                <option value="PARABOLIC_SHORT">Q: Parabolic Short</option>
+                <option value="PARABOLIC_LONG">Q: Parabolic Long</option>
+                <option value="EPISODIC_PIVOT">Q: Episodic Pivot</option>
+              </select>
+              <input placeholder="R-Multiple" value={form.rMultiple} onChange={e => setForm({ ...form, rMultiple: e.target.value })} style={inputStyle} type="number" step="0.1" />
             </div>
             <textarea placeholder="Notes..." value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} style={{ ...inputStyle, height: 60, resize: 'none', fontFamily: FR }} />
             <button onClick={handleAdd} style={{ fontFamily: FO, fontWeight: 700, fontSize: 11, letterSpacing: 2, color: C.bg, background: C.green, padding: '10px 0', borderRadius: 4, width: '100%' }}>LOG TRADE</button>
@@ -2202,6 +2485,7 @@ const NAV_ITEMS = [
 ]
 
 const MORE_ITEMS = [
+  { key: 'momentum', label: 'MOMENTUM' },
   { key: 'analyze', label: 'ANALYZE' },
   { key: 'screener', label: 'SCREENER' },
   { key: 'news', label: 'NEWS' },
@@ -2243,6 +2527,7 @@ function AppInner() {
       case 'watch': return <WatchPage />
       case 'plays': return <PlaysPage />
       case 'brief': return <BriefPage />
+      case 'momentum': return <MomentumPage />
       case 'analyze': return <AnalyzePage />
       case 'screener': return <ScreenerPage />
       case 'news': return <NewsPage />

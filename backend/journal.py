@@ -89,6 +89,10 @@ def add_trade(trade: dict) -> dict:
         "status": trade.get("status", "OPEN"),
         "notes": trade.get("notes", ""),
         "tags": trade.get("tags", []),
+        # Qullamaggie setup tagging
+        "setupType": trade.get("setupType", ""),  # BREAKOUT / PARABOLIC_SHORT / PARABOLIC_LONG / EPISODIC_PIVOT / MKW_CONVERGENCE / DUAL_CONVERGENCE
+        "rMultiple": trade.get("rMultiple"),  # R-multiple achieved (profit / initial risk)
+        "qullamaggieScore": trade.get("qullamaggieScore"),  # Quality score at entry
         "createdAt": datetime.utcnow().isoformat(),
     }
 
@@ -228,6 +232,12 @@ def compute_analytics() -> dict:
     # Win rate by strategy type
     by_strategy = _win_rate_by_field(closed, "strategyType")
 
+    # Win rate by Qullamaggie setup type
+    by_setup_type = _win_rate_by_field(closed, "setupType")
+
+    # R-multiple analytics by setup type
+    r_multiple_stats = _r_multiple_by_setup(closed)
+
     # Monthly P&L
     monthly = _monthly_pnl(closed)
 
@@ -261,6 +271,8 @@ def compute_analytics() -> dict:
         "byIVRank": by_iv,
         "byRegime": by_regime,
         "byStrategy": by_strategy,
+        "bySetupType": by_setup_type,
+        "rMultipleStats": r_multiple_stats,
         "monthly": monthly,
         "rollingWinRate": rolling,
         "insights": _generate_insights(closed, by_grade, by_zone, by_phase, by_iv, win_rate),
@@ -401,6 +413,36 @@ def _calc_streaks(closed: list) -> tuple:
 
     streak_label = f"{current} {'win' if current_type == 'win' else 'loss'}{'s' if current > 1 else ''}"
     return max_win, max_loss, streak_label
+
+
+def _r_multiple_by_setup(closed: list) -> list:
+    """Calculate average R-multiple by Qullamaggie setup type."""
+    groups = defaultdict(list)
+    for t in closed:
+        setup_type = t.get("setupType")
+        r_mult = t.get("rMultiple")
+        if setup_type and r_mult is not None:
+            groups[setup_type].append(float(r_mult))
+
+    results = []
+    for stype, r_values in sorted(groups.items()):
+        if not r_values:
+            continue
+        wins = [r for r in r_values if r > 0]
+        losses = [r for r in r_values if r <= 0]
+        avg_winner = round(sum(wins) / len(wins), 1) if wins else 0
+        avg_loser = round(sum(losses) / len(losses), 1) if losses else 0
+        win_rate = round(len(wins) / len(r_values) * 100, 1)
+        expectancy = round(sum(r_values) / len(r_values), 2)
+        results.append({
+            "setupType": stype,
+            "trades": len(r_values),
+            "winRate": win_rate,
+            "avgWinnerR": avg_winner,
+            "avgLoserR": avg_loser,
+            "expectancyR": expectancy,
+        })
+    return results
 
 
 def _generate_insights(closed: list, by_grade: list, by_zone: list,
