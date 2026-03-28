@@ -457,12 +457,134 @@ function HomePage() {
 // ═══════════════════════════════════════════════════════════════════════════
 // PAGE: WATCH — Watchlist
 // ═══════════════════════════════════════════════════════════════════════════
+// ── Stock Card Component (shared between watchlist and scanners) ──
+function StockCard({ s, expanded, onToggle, techCache, srCache, onLoadDetails }) {
+  const ticker = s.ticker || s.symbol || '???'
+  const isOpen = expanded
+  const tech = techCache
+  const sr = srCache
+  const checklist = s.checklist || s.convergence_checklist || []
+
+  const handleClick = () => {
+    onToggle(ticker)
+    if (!isOpen && !tech) onLoadDetails(ticker)
+  }
+
+  return (
+    <Panel key={ticker} borderColor={isOpen ? zoneColor(s.zone) : C.border} glow={isOpen ? zoneColor(s.zone) : undefined}>
+      <div onClick={handleClick} style={{ padding: 12, cursor: 'pointer' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontFamily: FO, fontWeight: 900, fontSize: 18, color: C.textBright }}>{ticker}</span>
+            <GradeBadge grade={s.grade} size={16} />
+            <ZoneBadge zone={s.zone} />
+          </div>
+          <Mono size={15} color={C.textBright}>${s.price != null ? Number(s.price).toFixed(2) : '—'}</Mono>
+        </div>
+        <div style={{ fontFamily: FR, fontWeight: 500, fontSize: 11, color: C.textDim, marginBottom: 6 }}>{s.name || s.company || ''}</div>
+        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+          <div><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1.5, color: C.textDim }}>DAY </span><Pct v={s.day_change ?? s.change_1d} size={11} /></div>
+          <div><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1.5, color: C.textDim }}>WK </span><Pct v={s.week_change ?? s.change_1w} size={11} /></div>
+          <div><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1.5, color: C.textDim }}>MO </span><Pct v={s.month_change ?? s.change_1m} size={11} /></div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
+          <Mono size={10} color={C.textDim}>Score: <span style={{ color: zoneColor(s.zone) }}>{s.convergence_score ?? s.score ?? '—'}/23</span></Mono>
+          <Mono size={10} color={C.textDim}>Stage: {s.stage || s.weinstein_stage || '—'}</Mono>
+          <Mono size={10} color={C.textDim}>TPL: {s.template_score ?? s.minervini_score ?? '—'}/8</Mono>
+          <Mono size={10} color={C.textDim}>RS: {s.rs ?? s.relative_strength ?? '—'}</Mono>
+          <Mono size={10} color={C.textDim}>Kell: {s.kell_phase ?? s.phase ?? '—'}</Mono>
+          {s.finra?.svr_today != null && <Mono size={10} color={s.finra.color === 'green' ? C.green : s.finra.color === 'red' ? C.red : s.finra.color === 'yellow' ? C.gold : C.textDim}>SVR: {s.finra.svr_today}%</Mono>}
+        </div>
+        {(s.vcp || s.vcp_detected) && <div style={{ marginTop: 4 }}><Mono size={10} color={C.purple}>VCP Detected — {s.vcp_contractions || s.contractions || '?'} contractions</Mono></div>}
+        {s.flags && s.flags.length > 0 && <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>{s.flags.map((f, i) => <span key={i} style={{ fontFamily: FM, fontSize: 9, color: C.gold, background: `${C.gold}11`, border: `1px solid ${C.gold}33`, borderRadius: 3, padding: '1px 6px' }}>{f}</span>)}</div>}
+      </div>
+      {isOpen && (
+        <div style={{ borderTop: `1px solid ${C.border}`, padding: 12, animation: 'fadeIn 0.2s ease' }}>
+          {checklist.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim, marginBottom: 6 }}>CONVERGENCE CHECKLIST</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+                {checklist.map((item, i) => {
+                  const pass = item.pass ?? item.passed ?? item.met ?? item.status === 'pass'
+                  const label = item.label || item.name || item.criterion || item
+                  return (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 0' }}>
+                      <span style={{ fontFamily: FM, fontSize: 10, color: pass ? C.green : C.red }}>{pass ? '✓' : '✗'}</span>
+                      <span style={{ fontFamily: FR, fontSize: 10, color: pass ? C.text : C.textDim }}>{typeof label === 'string' ? label : JSON.stringify(label)}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+          {tech && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim, marginBottom: 6 }}>TECHNICALS</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4 }}>
+                {Object.entries(tech).filter(([k]) => !['ticker', 'symbol', 'error'].includes(k)).slice(0, 12).map(([k, v]) => (
+                  <div key={k} style={{ background: C.raised, borderRadius: 4, padding: '4px 6px' }}>
+                    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1, color: C.textDim, textTransform: 'uppercase' }}>{k.replace(/_/g, ' ')}</div>
+                    <Mono size={10}>{typeof v === 'number' ? v.toFixed(2) : String(v ?? '—')}</Mono>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {sr && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim, marginBottom: 6 }}>SUPPORT / RESISTANCE</div>
+              <div style={{ display: 'flex', gap: 16 }}>
+                <div>
+                  <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, color: C.green, marginBottom: 2 }}>SUPPORT</div>
+                  {(sr.support || sr.supports || []).slice(0, 3).map((v, i) => <div key={i}><Mono size={11} color={C.green}>${typeof v === 'number' ? v.toFixed(2) : (v?.price != null ? Number(v.price).toFixed(2) : v)}</Mono></div>)}
+                </div>
+                <div>
+                  <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, color: C.red, marginBottom: 2 }}>RESISTANCE</div>
+                  {(sr.resistance || sr.resistances || []).slice(0, 3).map((v, i) => <div key={i}><Mono size={11} color={C.red}>${typeof v === 'number' ? v.toFixed(2) : (v?.price != null ? Number(v.price).toFixed(2) : v)}</Mono></div>)}
+                </div>
+              </div>
+            </div>
+          )}
+          {(s.eps_growth || s.revenue_growth || s.fundamentals) && (
+            <div>
+              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim, marginBottom: 6 }}>FUNDAMENTALS</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4 }}>
+                {[
+                  { k: 'EPS Growth', v: s.eps_growth ?? s.fundamentals?.eps_growth },
+                  { k: 'Rev Growth', v: s.revenue_growth ?? s.fundamentals?.revenue_growth },
+                  { k: 'Margins', v: s.margins ?? s.fundamentals?.margins },
+                  { k: 'ROE', v: s.roe ?? s.fundamentals?.roe },
+                  { k: 'Market Cap', v: s.market_cap ?? s.fundamentals?.market_cap },
+                ].filter(x => x.v != null).map(({ k, v }) => (
+                  <div key={k} style={{ background: C.raised, borderRadius: 4, padding: '4px 6px' }}>
+                    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1, color: C.textDim }}>{k}</div>
+                    <Mono size={10}>{typeof v === 'number' ? (Math.abs(v) < 1 ? (v * 100).toFixed(1) + '%' : v.toFixed(2)) : String(v)}</Mono>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+// ── Scanner Icons ──
+const SCANNER_ICONS = { mega_cap: '\u{1F451}', canslim: '\u{1F4CA}', new_highs: '\u{2B06}', rs_leaders: '\u{26A1}', todays_watch: '\u{1F441}', intraday: '\u{23F1}' }
+
 function WatchPage() {
   const { data: watchlist, loading, error, reload } = useFetch('/api/watchlist')
   const [filter, setFilter] = useState('ALL')
   const [expanded, setExpanded] = useState({})
   const [techCache, setTechCache] = useState({})
   const [srCache, setSrCache] = useState({})
+  // Scanner state
+  const [mode, setMode] = useState('watchlist')
+  const [activeScanner, setActiveScanner] = useState('todays_watch')
+  const [scannerData, setScannerData] = useState(null)
+  const [scannerLoading, setScannerLoading] = useState(false)
+  const [scannerError, setScannerError] = useState(null)
 
   const items = Array.isArray(watchlist) ? watchlist : (watchlist?.watchlist || watchlist?.stocks || watchlist?.items || [])
   const sorted = [...items].sort((a, b) => (b.convergence_score || b.score || 0) - (a.convergence_score || a.score || 0))
@@ -474,139 +596,145 @@ function WatchPage() {
     return z.includes(filter)
   })
 
-  const toggle = async (ticker) => {
+  const toggle = (ticker) => {
     setExpanded(prev => ({ ...prev, [ticker]: !prev[ticker] }))
-    if (!expanded[ticker] && !techCache[ticker]) {
-      try {
-        const [tech, sr] = await Promise.all([
-          api(`/api/technicals/${ticker}`).catch(() => null),
-          api(`/api/support-resistance/${ticker}`).catch(() => null),
-        ])
-        setTechCache(prev => ({ ...prev, [ticker]: tech }))
-        setSrCache(prev => ({ ...prev, [ticker]: sr }))
-      } catch {}
+  }
+
+  const loadDetails = async (ticker) => {
+    if (techCache[ticker]) return
+    try {
+      const [tech, sr] = await Promise.all([
+        api(`/api/technicals/${ticker}`).catch(() => null),
+        api(`/api/support-resistance/${ticker}`).catch(() => null),
+      ])
+      setTechCache(prev => ({ ...prev, [ticker]: tech }))
+      setSrCache(prev => ({ ...prev, [ticker]: sr }))
+    } catch {}
+  }
+
+  const runScanner = async (mod) => {
+    setActiveScanner(mod)
+    setScannerLoading(true)
+    setScannerError(null)
+    try {
+      const data = await api(`/api/scanner/${mod}`)
+      setScannerData(data)
+    } catch (e) {
+      setScannerError(e.message || 'Scanner failed')
+    } finally {
+      setScannerLoading(false)
     }
   }
 
-  if (loading) return <Loading />
-  if (error) return <ErrorMsg msg={error} onRetry={reload} />
+  const scannerModules = [
+    { key: 'todays_watch', name: "TODAY'S WATCH" },
+    { key: 'mega_cap', name: 'MEGA CAP' },
+    { key: 'rs_leaders', name: 'RS LEADERS' },
+    { key: 'canslim', name: 'CANSLIM' },
+    { key: 'new_highs', name: 'NEW HIGHS' },
+    { key: 'intraday', name: 'INTRA-DAY' },
+  ]
+
+  const scannerStocks = scannerData?.stocks || []
+
+  if (loading && mode === 'watchlist') return <Loading />
+  if (error && mode === 'watchlist') return <ErrorMsg msg={error} onRetry={reload} />
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-      <TabBar tabs={zones} active={filter} onSelect={setFilter} />
-      <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <div style={{ fontFamily: FM, fontSize: 10, color: C.textDim, padding: '0 4px' }}>{filtered.length} names</div>
-        {filtered.length === 0 && <EmptyState />}
-        {filtered.map((s) => {
-          const ticker = s.ticker || s.symbol || '???'
-          const isOpen = expanded[ticker]
-          const tech = techCache[ticker]
-          const sr = srCache[ticker]
-          const checklist = s.checklist || s.convergence_checklist || []
-          return (
-            <Panel key={ticker} borderColor={isOpen ? zoneColor(s.zone) : C.border} glow={isOpen ? zoneColor(s.zone) : undefined}>
-              <div onClick={() => toggle(ticker)} style={{ padding: 12, cursor: 'pointer' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ fontFamily: FO, fontWeight: 900, fontSize: 18, color: C.textBright }}>{ticker}</span>
-                    <GradeBadge grade={s.grade} size={16} />
-                    <ZoneBadge zone={s.zone} />
-                  </div>
-                  <Mono size={15} color={C.textBright}>${s.price != null ? Number(s.price).toFixed(2) : '—'}</Mono>
-                </div>
-                <div style={{ fontFamily: FR, fontWeight: 500, fontSize: 11, color: C.textDim, marginBottom: 6 }}>{s.name || s.company || ''}</div>
-                <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-                  <div><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1.5, color: C.textDim }}>DAY </span><Pct v={s.day_change ?? s.change_1d} size={11} /></div>
-                  <div><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1.5, color: C.textDim }}>WK </span><Pct v={s.week_change ?? s.change_1w} size={11} /></div>
-                  <div><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1.5, color: C.textDim }}>MO </span><Pct v={s.month_change ?? s.change_1m} size={11} /></div>
-                </div>
-                <div style={{ display: 'flex', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
-                  <Mono size={10} color={C.textDim}>Score: <span style={{ color: zoneColor(s.zone) }}>{s.convergence_score ?? s.score ?? '—'}/23</span></Mono>
-                  <Mono size={10} color={C.textDim}>Stage: {s.stage || s.weinstein_stage || '—'}</Mono>
-                  <Mono size={10} color={C.textDim}>TPL: {s.template_score ?? s.minervini_score ?? '—'}/8</Mono>
-                  <Mono size={10} color={C.textDim}>RS: {s.rs ?? s.relative_strength ?? '—'}</Mono>
-                  <Mono size={10} color={C.textDim}>Kell: {s.kell_phase ?? s.phase ?? '—'}</Mono>
-                  {s.finra?.svr_today != null && <Mono size={10} color={s.finra.color === 'green' ? C.green : s.finra.color === 'red' ? C.red : s.finra.color === 'yellow' ? C.gold : C.textDim}>SVR: {s.finra.svr_today}%</Mono>}
-                </div>
-                {(s.vcp || s.vcp_detected) && <div style={{ marginTop: 4 }}><Mono size={10} color={C.purple}>VCP Detected — {s.vcp_contractions || s.contractions || '?'} contractions</Mono></div>}
-                {s.flags && s.flags.length > 0 && <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>{s.flags.map((f, i) => <span key={i} style={{ fontFamily: FM, fontSize: 9, color: C.gold, background: `${C.gold}11`, border: `1px solid ${C.gold}33`, borderRadius: 3, padding: '1px 6px' }}>{f}</span>)}</div>}
-              </div>
-              {isOpen && (
-                <div style={{ borderTop: `1px solid ${C.border}`, padding: 12, animation: 'fadeIn 0.2s ease' }}>
-                  {/* Convergence Checklist */}
-                  {checklist.length > 0 && (
-                    <div style={{ marginBottom: 12 }}>
-                      <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim, marginBottom: 6 }}>CONVERGENCE CHECKLIST</div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
-                        {checklist.map((item, i) => {
-                          const pass = item.pass ?? item.passed ?? item.met ?? item.status === 'pass'
-                          const label = item.label || item.name || item.criterion || item
-                          return (
-                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 0' }}>
-                              <span style={{ fontFamily: FM, fontSize: 10, color: pass ? C.green : C.red }}>{pass ? '✓' : '✗'}</span>
-                              <span style={{ fontFamily: FR, fontSize: 10, color: pass ? C.text : C.textDim }}>{typeof label === 'string' ? label : JSON.stringify(label)}</span>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
-                  {/* Technicals */}
-                  {tech && (
-                    <div style={{ marginBottom: 12 }}>
-                      <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim, marginBottom: 6 }}>TECHNICALS</div>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4 }}>
-                        {Object.entries(tech).filter(([k]) => !['ticker', 'symbol', 'error'].includes(k)).slice(0, 12).map(([k, v]) => (
-                          <div key={k} style={{ background: C.raised, borderRadius: 4, padding: '4px 6px' }}>
-                            <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1, color: C.textDim, textTransform: 'uppercase' }}>{k.replace(/_/g, ' ')}</div>
-                            <Mono size={10}>{typeof v === 'number' ? v.toFixed(2) : String(v ?? '—')}</Mono>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {/* S/R */}
-                  {sr && (
-                    <div style={{ marginBottom: 12 }}>
-                      <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim, marginBottom: 6 }}>SUPPORT / RESISTANCE</div>
-                      <div style={{ display: 'flex', gap: 16 }}>
-                        <div>
-                          <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, color: C.green, marginBottom: 2 }}>SUPPORT</div>
-                          {(sr.support || sr.supports || []).slice(0, 3).map((v, i) => <div key={i}><Mono size={11} color={C.green}>${typeof v === 'number' ? v.toFixed(2) : (v?.price != null ? Number(v.price).toFixed(2) : v)}</Mono></div>)}
-                        </div>
-                        <div>
-                          <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, color: C.red, marginBottom: 2 }}>RESISTANCE</div>
-                          {(sr.resistance || sr.resistances || []).slice(0, 3).map((v, i) => <div key={i}><Mono size={11} color={C.red}>${typeof v === 'number' ? v.toFixed(2) : (v?.price != null ? Number(v.price).toFixed(2) : v)}</Mono></div>)}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  {/* Fundamental snapshot from watchlist item */}
-                  {(s.eps_growth || s.revenue_growth || s.fundamentals) && (
-                    <div>
-                      <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim, marginBottom: 6 }}>FUNDAMENTALS</div>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4 }}>
-                        {[
-                          { k: 'EPS Growth', v: s.eps_growth ?? s.fundamentals?.eps_growth },
-                          { k: 'Rev Growth', v: s.revenue_growth ?? s.fundamentals?.revenue_growth },
-                          { k: 'Margins', v: s.margins ?? s.fundamentals?.margins },
-                          { k: 'ROE', v: s.roe ?? s.fundamentals?.roe },
-                          { k: 'Market Cap', v: s.market_cap ?? s.fundamentals?.market_cap },
-                        ].filter(x => x.v != null).map(({ k, v }) => (
-                          <div key={k} style={{ background: C.raised, borderRadius: 4, padding: '4px 6px' }}>
-                            <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1, color: C.textDim }}>{k}</div>
-                            <Mono size={10}>{typeof v === 'number' ? (Math.abs(v) < 1 ? (v * 100).toFixed(1) + '%' : v.toFixed(2)) : String(v)}</Mono>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </Panel>
-          )
-        })}
+      {/* Mode Toggle */}
+      <div style={{ display: 'flex', gap: 0, margin: '0' }}>
+        <button onClick={() => setMode('watchlist')} style={{
+          flex: 1, padding: '10px 0', fontFamily: FO, fontWeight: 700, fontSize: 10, letterSpacing: 2,
+          color: mode === 'watchlist' ? C.bg : C.textDim,
+          background: mode === 'watchlist' ? C.blue : 'transparent',
+          borderBottom: mode === 'watchlist' ? `2px solid ${C.blue}` : `1px solid ${C.border}`,
+        }}>WATCHLIST</button>
+        <button onClick={() => { setMode('scanners'); if (!scannerData) runScanner(activeScanner) }} style={{
+          flex: 1, padding: '10px 0', fontFamily: FO, fontWeight: 700, fontSize: 10, letterSpacing: 2,
+          color: mode === 'scanners' ? C.bg : C.textDim,
+          background: mode === 'scanners' ? C.gold : 'transparent',
+          borderBottom: mode === 'scanners' ? `2px solid ${C.gold}` : `1px solid ${C.border}`,
+        }}>SCANNERS</button>
       </div>
+
+      {mode === 'watchlist' ? (
+        <>
+          <TabBar tabs={zones} active={filter} onSelect={setFilter} />
+          <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ fontFamily: FM, fontSize: 10, color: C.textDim, padding: '0 4px' }}>{filtered.length} names</div>
+            {filtered.length === 0 && <EmptyState />}
+            {filtered.map((s) => {
+              const ticker = s.ticker || s.symbol || '???'
+              return (
+                <StockCard key={ticker} s={s} expanded={expanded[ticker]} onToggle={toggle}
+                  techCache={techCache[ticker]} srCache={srCache[ticker]} onLoadDetails={loadDetails} />
+              )
+            })}
+          </div>
+        </>
+      ) : (
+        <>
+          {/* Scanner Module Tabs */}
+          <div style={{ display: 'flex', gap: 0, overflowX: 'auto', borderBottom: `1px solid ${C.border}`, padding: '0 4px' }}>
+            {scannerModules.map(m => (
+              <button key={m.key} onClick={() => runScanner(m.key)} style={{
+                fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1,
+                color: activeScanner === m.key ? C.gold : C.textDim,
+                padding: '8px 10px', flexShrink: 0, whiteSpace: 'nowrap',
+                borderBottom: activeScanner === m.key ? `2px solid ${C.gold}` : '2px solid transparent',
+                transition: 'all 0.2s',
+              }}>{SCANNER_ICONS[m.key] || ''} {m.name}</button>
+            ))}
+          </div>
+
+          <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {/* Scanner header */}
+            {scannerData && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 4px' }}>
+                <div>
+                  <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 10, letterSpacing: 1, color: C.gold }}>{scannerData.scannerName || activeScanner}</div>
+                  <div style={{ fontFamily: FR, fontSize: 10, color: C.textDim }}>{scannerData.description || ''}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontFamily: FM, fontSize: 10, color: C.textDim }}>{scannerStocks.length} results</div>
+                  {scannerData.lastUpdated && <div style={{ fontFamily: FM, fontSize: 8, color: C.textDim }}>Updated: {new Date(scannerData.lastUpdated).toLocaleTimeString()}</div>}
+                </div>
+              </div>
+            )}
+
+            {/* Refresh button */}
+            <button onClick={() => runScanner(activeScanner)} style={{
+              fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2,
+              color: C.bg, background: C.gold, padding: '6px 16px', borderRadius: 4, alignSelf: 'flex-end',
+            }}>REFRESH</button>
+
+            {scannerLoading && <Loading text={`SCANNING ${(scannerModules.find(m => m.key === activeScanner)?.name || '').toUpperCase()}...`} />}
+            {scannerError && <ErrorMsg msg={scannerError} onRetry={() => runScanner(activeScanner)} />}
+
+            {!scannerLoading && scannerStocks.length === 0 && !scannerError && (
+              <EmptyState text="No stocks match this scanner's criteria. Try a different scanner or wait for market data to refresh." />
+            )}
+
+            {!scannerLoading && scannerStocks.map((s, idx) => {
+              const ticker = s.ticker || s.symbol || '???'
+              return (
+                <div key={ticker}>
+                  {/* Rank badge */}
+                  <div style={{ fontFamily: FO, fontWeight: 900, fontSize: 10, letterSpacing: 2, color: C.gold, padding: '2px 4px', marginBottom: 2 }}>
+                    #{idx + 1}
+                    {s.canslim_score != null && <span style={{ marginLeft: 8, fontFamily: FM, fontSize: 9, color: C.blue }}>CANSLIM: {s.canslim_score}/7</span>}
+                    {s.watch_score != null && <span style={{ marginLeft: 8, fontFamily: FM, fontSize: 9, color: C.gold }}>WATCH: {s.watch_score}</span>}
+                    {s.momentum_score != null && <span style={{ marginLeft: 8, fontFamily: FM, fontSize: 9, color: C.purple }}>MOM: {s.momentum_score}</span>}
+                  </div>
+                  <StockCard s={s} expanded={expanded[ticker]} onToggle={toggle}
+                    techCache={techCache[ticker]} srCache={srCache[ticker]} onLoadDetails={loadDetails} />
+                </div>
+              )
+            })}
+          </div>
+        </>
+      )}
     </div>
   )
 }

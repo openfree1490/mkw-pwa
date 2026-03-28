@@ -1181,6 +1181,132 @@ SCREENER_PRESETS = {
 }
 
 # ─────────────────────────────────────────────
+# SCANNER MODULES
+# ─────────────────────────────────────────────
+SCANNER_MODULES = {
+    "mega_cap": {
+        "name": "Mega Cap Momentum",
+        "description": "Market cap > $100B + Stage 2 + RS > 60 + volume confirmation",
+        "icon": "crown",
+    },
+    "canslim": {
+        "name": "CANSLIM Composite",
+        "description": "Strong earnings growth + RS leader + Stage 2 uptrend",
+        "icon": "chart",
+    },
+    "new_highs": {
+        "name": "New Highs Power",
+        "description": "Within 5% of 52-week high with volume and uptrend confirmation",
+        "icon": "arrow_up",
+    },
+    "rs_leaders": {
+        "name": "Relative Strength Leaders",
+        "description": "RS >= 80 + Template 6/8+ — strongest momentum names",
+        "icon": "bolt",
+    },
+    "todays_watch": {
+        "name": "Today's Watch",
+        "description": "Convergence/Secondary zone stocks with actionable entry signals",
+        "icon": "eye",
+    },
+    "intraday": {
+        "name": "Intra-Day Movers",
+        "description": "Day change > 2% or unusual volume — active momentum",
+        "icon": "zap",
+    },
+}
+
+
+def _run_scanner(module: str, stocks: list) -> list:
+    """Apply scanner-specific filters to the cached watchlist stocks."""
+    if module == "mega_cap":
+        filtered = []
+        for s in stocks:
+            mcap = s.get("market_cap") or s.get("marketCap") or 0
+            stage = str(s.get("stage", "?"))
+            rs = s.get("rs") or s.get("relative_strength") or 0
+            if mcap > 100e9 and stage in ("2A", "2B") and rs >= 60:
+                filtered.append(s)
+        filtered.sort(key=lambda x: (x.get("rs", 0), x.get("day_change", 0)), reverse=True)
+
+    elif module == "canslim":
+        filtered = []
+        for s in stocks:
+            fund = s.get("fundamentals", {})
+            eps = fund.get("eps") or fund.get("eps_growth") or 0
+            rev = fund.get("rev") or fund.get("rev_growth") or fund.get("revenue_growth") or 0
+            rs = s.get("rs") or 0
+            stage = str(s.get("stage", "?"))
+            # CANSLIM: strong earnings, strong RS, confirmed uptrend
+            # Relaxed: EPS or Rev > 15%, RS > 70, Stage 2
+            if (eps >= 15 or rev >= 15) and rs >= 70 and stage in ("2A", "2B"):
+                # Calculate CANSLIM score (0-7)
+                score = 0
+                if eps >= 25: score += 1  # C: Current earnings
+                if eps >= 15: score += 1  # A: Annual earnings (approx)
+                pct52 = s.get("pct_from_52h") or s.get("technicals", {}).get("pctFrom52h")
+                if pct52 is not None and abs(pct52) <= 10: score += 1  # N: New highs
+                if s.get("technicals", {}).get("volumeProfile", {}).get("ratio", 1) > 1.0: score += 1  # S: Supply/demand
+                if rs >= 80: score += 1  # L: Leader
+                score += 1  # I: Institutional (assume for large caps)
+                score += 1  # M: Market direction (assume we're in S2)
+                s = {**s, "canslim_score": score}
+                filtered.append(s)
+        filtered.sort(key=lambda x: (x.get("canslim_score", 0), x.get("rs", 0)), reverse=True)
+
+    elif module == "new_highs":
+        filtered = []
+        for s in stocks:
+            pct52 = s.get("pct_from_52h") or s.get("technicals", {}).get("pctFrom52h")
+            stage = str(s.get("stage", "?"))
+            if pct52 is not None and abs(pct52) <= 5 and stage in ("2A", "2B", "3"):
+                filtered.append(s)
+        filtered.sort(key=lambda x: abs(x.get("pct_from_52h") or x.get("technicals", {}).get("pctFrom52h", -99)), reverse=False)
+
+    elif module == "rs_leaders":
+        filtered = []
+        for s in stocks:
+            rs = s.get("rs") or s.get("relative_strength") or 0
+            tpl = s.get("template_score") or s.get("minervini_score") or 0
+            if rs >= 80 and tpl >= 6:
+                filtered.append(s)
+        filtered.sort(key=lambda x: x.get("rs", 0), reverse=True)
+
+    elif module == "todays_watch":
+        filtered = []
+        for s in stocks:
+            zone = s.get("zone", "")
+            phase = s.get("kell_phase") or s.get("phase") or ""
+            score = s.get("convergence_score") or s.get("score") or 0
+            # Convergence/Secondary with actionable phases, or high convergence score
+            if zone in ("CONVERGENCE", "SECONDARY") or score >= 16:
+                # Bonus points for actionable phases
+                phase_bonus = 10 if phase in ("EMA Crossback", "Pop", "Base n Break") else 0
+                zone_bonus = 20 if zone == "CONVERGENCE" else 10 if zone == "SECONDARY" else 0
+                watch_score = score + phase_bonus + zone_bonus
+                s = {**s, "watch_score": watch_score}
+                filtered.append(s)
+        filtered.sort(key=lambda x: x.get("watch_score", 0), reverse=True)
+
+    elif module == "intraday":
+        filtered = []
+        for s in stocks:
+            day_chg = abs(s.get("day_change") or s.get("dp") or 0)
+            vol_ratio = s.get("technicals", {}).get("volumeProfile", {}).get("ratio", 0) or 0
+            # Day change > 2% or volume > 2x average
+            if day_chg >= 2.0 or vol_ratio >= 2.0:
+                momentum = day_chg + (vol_ratio * 2 if vol_ratio >= 1.5 else 0)
+                s = {**s, "momentum_score": round(momentum, 1)}
+                filtered.append(s)
+        filtered.sort(key=lambda x: x.get("momentum_score", 0), reverse=True)
+
+    else:
+        filtered = []
+
+    return filtered[:20]  # Cap at 20 results
+
+
+# ─────────────────────────────────────────────
 # FASTAPI APP
 # ─────────────────────────────────────────────
 def _warmup():
@@ -1535,6 +1661,22 @@ def get_options_analysis(ticker: str):
                         result["breakevenComparison"] = comparison
                         break
 
+        # Flatten IV data for frontend consumption
+        iv = result.get("iv") or {}
+        result["iv_rank"] = iv.get("ivRank") or iv.get("iv_rank")
+        result["iv_percentile"] = iv.get("ivPercentile") or iv.get("iv_percentile")
+        result["current_iv"] = iv.get("currentIV") or iv.get("current_iv")
+        result["hv_30"] = iv.get("hv30") or iv.get("hv_30")
+        iv_cur = result["current_iv"]
+        hv_cur = result["hv_30"]
+        result["iv_hv_ratio"] = round(iv_cur / hv_cur, 2) if iv_cur and hv_cur and hv_cur > 0 else None
+        pcr = result.get("putCallRatio")
+        result["put_call_ratio"] = pcr.get("volume") if isinstance(pcr, dict) else pcr
+        result["term_structure"] = iv.get("termStructureDetail") or iv.get("term_structure")
+        result["skew"] = iv.get("skewVerdict") or iv.get("skew")
+        strat = result.get("strategy") or result.get("strategySelection")
+        result["strategies"] = [strat] if isinstance(strat, dict) else (strat if isinstance(strat, list) else [])
+
         result = to_python(result)
         cache_set(key, result)
         return result
@@ -1644,7 +1786,16 @@ def get_support_resistance(ticker: str):
     df = fetch_ohlcv(ticker, "2y")
     if df is None:
         raise HTTPException(404, f"No data for {ticker}")
-    return to_python({"levels": calc_sr_levels(df), "ticker": ticker})
+    levels = calc_sr_levels(df)
+    support = [l for l in levels if l.get("type") == "support"]
+    resistance = [l for l in levels if l.get("type") == "resistance"]
+    # Pivot point from last day's HLC
+    if len(df) >= 2:
+        prev = df.iloc[-2]
+        pivot = round((float(prev["High"]) + float(prev["Low"]) + float(prev["Close"])) / 3, 2)
+    else:
+        pivot = None
+    return to_python({"levels": levels, "support": support, "resistance": resistance, "pivot": pivot, "ticker": ticker})
 
 @app.get("/api/screener")
 def get_screener(
@@ -1717,6 +1868,42 @@ def get_screener(
 @app.get("/api/screener/presets")
 def get_screener_presets():
     return SCREENER_PRESETS
+
+# ─────────────────────────────────────────────
+# SCANNER ENDPOINTS
+# ─────────────────────────────────────────────
+@app.get("/api/scanners")
+def get_scanner_modules():
+    """List all available scanner modules."""
+    return SCANNER_MODULES
+
+@app.get("/api/scanner/{module}")
+def run_scanner(module: str):
+    """Run a specific scanner module against the watchlist universe."""
+    if module not in SCANNER_MODULES:
+        raise HTTPException(404, f"Unknown scanner: {module}")
+    try:
+        cached = cache_get("watchlist", CACHE_WATCHLIST * 4)
+        if cached:
+            stocks = cached.get("stocks", [])
+        else:
+            resp = _build_watchlist()
+            if resp is None:
+                return {"stocks": [], "total": 0, "scanner": module, "scannerName": SCANNER_MODULES[module]["name"]}
+            stocks = resp.get("stocks", [])
+
+        filtered = _run_scanner(module, stocks)
+        return to_python({
+            "stocks": filtered,
+            "total": len(filtered),
+            "scanner": module,
+            "scannerName": SCANNER_MODULES[module]["name"],
+            "description": SCANNER_MODULES[module]["description"],
+            "lastUpdated": datetime.utcnow().isoformat(),
+        })
+    except Exception as e:
+        log.error(f"Scanner {module} error: {e}")
+        return {"stocks": [], "total": 0, "scanner": module, "error": str(e)}
 
 @app.get("/api/breadth")
 def get_breadth():
