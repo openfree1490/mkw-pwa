@@ -296,10 +296,11 @@ function HomePage() {
   const rut = bd.rut || bd.iwm || bd.IWM || {}
   const vix = bd.vix ?? bd.VIX ?? '—'
   const templateCount = bd.template_count ?? bd.qualifier_count ?? items.filter(s => (s.template_score || 0) >= 7).length
-  const kellLight = (spx.stage || '').includes('2') ? 'green' : (spx.stage || '').includes('3') || (spx.stage || '').includes('4') ? 'red' : 'yellow'
+  const spxStage = String(spx.stage ?? spx.stageLabel ?? '')
+  const kellLight = spxStage.includes('2') ? 'green' : spxStage.includes('3') || spxStage.includes('4') ? 'red' : 'yellow'
 
   const sectorData = bd.sectors || bd.sector_performance || []
-  const sectorBars = (Array.isArray(sectorData) ? sectorData : Object.entries(sectorData).map(([k, v]) => ({ label: k, value: typeof v === 'number' ? v : v?.change || 0 }))).slice(0, 11)
+  const sectorBars = (Array.isArray(sectorData) ? sectorData : Object.entries(sectorData).map(([k, v]) => ({ label: k, value: typeof v === 'number' ? v : v?.change || 0 }))).map(s => ({ label: s.n || s.name || s.sector || s.label || s.etf || '?', value: s.p ?? s.change ?? s.performance ?? s.value ?? 0 })).slice(0, 11)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 10 }}>
@@ -311,7 +312,7 @@ function HomePage() {
             {[{ label: 'SPX', d: spx }, { label: 'NDX', d: ndx }, { label: 'RUT', d: rut }].map(({ label, d }) => (
               <div key={label} style={{ background: C.raised, borderRadius: 6, padding: 8, textAlign: 'center' }}>
                 <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 10, letterSpacing: 2, color: C.textDim, marginBottom: 4 }}>{label}</div>
-                <div style={{ fontFamily: FO, fontWeight: 900, fontSize: 13, color: C.textBright }}>{d.stage || d.weinstein_stage || '—'}</div>
+                <div style={{ fontFamily: FO, fontWeight: 900, fontSize: 13, color: C.textBright }}>{d.stageLabel || d.weinstein_stage || d.stage || '—'}</div>
               </div>
             ))}
           </div>
@@ -893,7 +894,7 @@ function AnalyzePage() {
                 {[
                   { l: '52W HIGH', v: a.high_52w ?? a.week52_high },
                   { l: '52W LOW', v: a.low_52w ?? a.week52_low },
-                  { l: 'MKT CAP', v: a.market_cap ?? fund.market_cap },
+                  { l: 'MKT CAP', v: a.market_cap ?? a.marketCap ?? fund.marketCap ?? fund.market_cap },
                   { l: 'SECTOR', v: a.sector },
                   { l: 'DAY', v: a.day_change ?? a.change_1d, pct: true },
                   { l: 'WEEK', v: a.week_change ?? a.change_1w, pct: true },
@@ -1212,11 +1213,9 @@ function NewsPage() {
   const { data: news, loading: nl, error: ne, reload: nr } = useFetch('/api/news')
   const { data: earnings, loading: el } = useFetch('/api/earnings-calendar')
 
-  const newsItems = Array.isArray(news) ? news : (news?.articles || news?.headlines || news?.items || news?.news || [])
+  const marketNews = news?.marketNews || news?.market_news || (Array.isArray(news) ? news : [])
+  const watchlistNews = news?.watchlistAlerts || news?.watchlist_alerts || news?.watchlist || []
   const earningsItems = Array.isArray(earnings) ? earnings : (earnings?.calendar || earnings?.earnings || earnings?.items || [])
-
-  const marketNews = newsItems.filter(n => !(n.source || '').toLowerCase().includes('watchlist') || tab === 'MARKET')
-  const watchlistNews = newsItems.filter(n => n.watchlist || n.is_watchlist || (n.source || '').toLowerCase().includes('watchlist'))
 
   const displayNews = tab === 'MARKET' ? marketNews : tab === 'WATCHLIST' ? watchlistNews : []
 
@@ -1228,13 +1227,14 @@ function NewsPage() {
         {ne && <ErrorMsg msg={ne} onRetry={nr} />}
 
         {tab !== 'EARNINGS' && displayNews.length > 0 && displayNews.map((n, i) => {
-          const isRisk = n.risk || n.is_risk || (n.sentiment || '').toLowerCase().includes('negative') || (n.category || '').toLowerCase().includes('risk')
+          const isRisk = n.isRisk || n.risk || n.is_risk || (n.sentiment || '').toLowerCase().includes('negative') || (n.category || '').toLowerCase().includes('risk')
           return (
             <div key={i} style={{ background: C.panel, borderRadius: 6, padding: 10, borderLeft: `3px solid ${isRisk ? C.red : C.border}` }}>
+              {n.ticker && <span style={{ fontFamily: FO, fontWeight: 900, fontSize: 10, color: C.blue, letterSpacing: 1, marginBottom: 2, display: 'inline-block' }}>{n.ticker}</span>}
               <div style={{ fontFamily: FR, fontSize: 13, fontWeight: 600, color: isRisk ? C.red : C.textBright, lineHeight: 1.4 }}>{n.title || n.headline}</div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
                 <Mono size={10} color={C.textDim}>{n.source || n.provider || ''}</Mono>
-                <Mono size={10} color={C.textDim}>{n.time || n.published || n.date || ''}</Mono>
+                <Mono size={10} color={C.textDim}>{n.time ? (typeof n.time === 'number' ? new Date(n.time * 1000).toLocaleDateString() : n.time) : n.published || n.date || ''}</Mono>
               </div>
               {n.summary && <div style={{ fontFamily: FR, fontSize: 11, color: C.textDim, marginTop: 4, lineHeight: 1.4 }}>{n.summary}</div>}
             </div>
@@ -1283,7 +1283,7 @@ function BreadthPage() {
   const vix = bd.vix ?? bd.VIX ?? {}
   const vixVal = typeof vix === 'number' ? vix : (vix.value ?? vix.close ?? vix.last ?? '—')
   const sectorData = bd.sectors || bd.sector_performance || {}
-  const sectorBars = Array.isArray(sectorData) ? sectorData.map(s => ({ label: s.name || s.sector || s.label, value: s.change || s.performance || s.value || 0 })) : Object.entries(sectorData).map(([k, v]) => ({ label: k, value: typeof v === 'number' ? v : (v?.change || v?.performance || 0) }))
+  const sectorBars = Array.isArray(sectorData) ? sectorData.map(s => ({ label: s.n || s.name || s.sector || s.label || s.etf || '?', value: s.p ?? s.change ?? s.performance ?? s.value ?? 0 })) : Object.entries(sectorData).map(([k, v]) => ({ label: k, value: typeof v === 'number' ? v : (v?.p || v?.change || v?.performance || 0) }))
   const templateCount = bd.template_count ?? bd.qualifier_count ?? bd.templates ?? '—'
   const advDecl = bd.advance_decline ?? bd.adv_dec ?? {}
 
@@ -1297,8 +1297,8 @@ function BreadthPage() {
           <Panel key={label}>
             <div style={{ padding: 10, textAlign: 'center' }}>
               <div style={{ fontFamily: FO, fontWeight: 900, fontSize: 14, color: C.textBright, marginBottom: 4 }}>{label}</div>
-              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 10, color: C.blue, marginBottom: 2 }}>Stage {d.stage || d.weinstein_stage || '—'}</div>
-              <Pct v={d.change || d.day_change || d.change_pct} size={12} />
+              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 10, color: C.blue, marginBottom: 2 }}>Stage {d.stageLabel || d.weinstein_stage || d.stage || '—'}</div>
+              <Pct v={d.chg ?? d.change ?? d.day_change ?? d.change_pct} size={12} />
               <div style={{ marginTop: 4 }}><Mono size={10} color={C.textDim}>{d.price ? `$${Number(d.price).toFixed(2)}` : ''}</Mono></div>
             </div>
           </Panel>

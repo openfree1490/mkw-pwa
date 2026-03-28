@@ -960,18 +960,19 @@ def generate_programmatic_brief(watchlist_data, breadth, threats):
     ema_pos = breadth.get("spxEma", "?")
     tpl_cnt = breadth.get("tplCount", 0)
 
-    conv = [s for s in watchlist_data if s.get("conv",{}).get("zone") == "CONVERGENCE"]
-    sec = [s for s in watchlist_data if s.get("conv",{}).get("zone") == "SECONDARY"]
-    bld = [s for s in watchlist_data if s.get("conv",{}).get("zone") == "BUILDING"]
-    shorts = [s for s in watchlist_data if s.get("shortConv",{}).get("zone") in ("SHORT_CONVERGENCE","SHORT_SECONDARY")]
+    # Use normalized flat field names
+    conv = [s for s in watchlist_data if (s.get("zone") or "").upper() == "CONVERGENCE"]
+    sec = [s for s in watchlist_data if (s.get("zone") or "").upper() == "SECONDARY"]
+    bld = [s for s in watchlist_data if (s.get("zone") or "").upper() == "BUILDING"]
+    shorts = [s for s in watchlist_data if "SHORT" in (s.get("zone") or "").upper()]
 
-    mkt_color = "BULL" if ema_pos == "above" and stage == 2 else "BEAR" if ema_pos == "below" else "CAUTION"
+    mkt_color = "BULL" if ema_pos == "above" and str(stage).startswith("2") else "BEAR" if ema_pos == "below" else "CAUTION"
     vix_flag = "Elevated — reduce size" if isinstance(vix, (int,float)) and vix > 25 else "Normal"
 
     # Find top setup by grade score
     top_setup = None
     if conv:
-        sorted_conv = sorted(conv, key=lambda x: x.get("grade", {}).get("totalScore", 0), reverse=True)
+        sorted_conv = sorted(conv, key=lambda x: x.get("grade_score", 0), reverse=True)
         top_setup = sorted_conv[0]
 
     # Position sizing guidance
@@ -1007,44 +1008,44 @@ def generate_programmatic_brief(watchlist_data, breadth, threats):
         lines += ["", "## CONVERGENCE SETUPS (HIGHEST CONVICTION)"]
         if conv:
             for s in conv:
-                g = s.get("grade", {})
-                lines.append(f"- **{s['tk']}** {g.get('grade','?')} ({g.get('totalScore',0)}/100) — Score {s['conv']['score']}/22 · RS {s['min']['rs']} · {s['kell']['phase']} · Stage {s['wein']['stage']}")
+                lines.append(f"- **{s.get('ticker','?')}** {s.get('grade','?')} ({s.get('grade_score',0)}/100) — Score {s.get('convergence_score',0)}/23 · RS {s.get('rs',0)} · {s.get('phase','?')} · Stage {s.get('stage','?')}")
         else:
             lines.append("- None currently")
 
         lines += ["", "## SECONDARY SETUPS"]
         if sec:
             for s in sec:
-                lines.append(f"- **{s['tk']}** — Score {s['conv']['score']}/22 · RS {s['min']['rs']} · {s['kell']['phase']}")
+                lines.append(f"- **{s.get('ticker','?')}** — Score {s.get('convergence_score',0)}/23 · RS {s.get('rs',0)} · {s.get('phase','?')}")
         else:
             lines.append("- None currently")
 
     lines += ["", "## BUILDING (APPROACHING)"]
     if bld:
         for s in bld[:5]:
-            lines.append(f"- **{s['tk']}** — Score {s['conv']['score']}/22 · {s['setup']}")
+            lines.append(f"- **{s.get('ticker','?')}** — Score {s.get('convergence_score',0)}/23 · {s.get('setup','')}")
     else:
         lines.append("- None building currently")
 
     if shorts:
         lines += ["", "## SHORT SETUPS"]
         for s in shorts[:3]:
-            lines.append(f"- **{s['tk']}** — Short score {s['shortConv']['score']} · {s['shortConv']['zone']}")
+            sc = s.get("shortConv", {})
+            lines.append(f"- **{s.get('ticker','?')}** — Short score {sc.get('score',0)} · {sc.get('zone','?')}")
 
     if top_setup:
-        g = top_setup.get("grade", {})
+        gd = top_setup.get("grade_detail", {})
         lines += [
             "",
-            f"## TOP SETUP: {top_setup['tk']} — {g.get('grade','?')} ({g.get('totalScore',0)}/100)",
-            f"**{top_setup['setup']}**",
-            f"RS {top_setup['min']['rs']} · Stage {top_setup['wein']['stage']} · {top_setup['kell']['phase']}",
-            f"Grade breakdown: {g.get('summary', 'N/A')}",
+            f"## TOP SETUP: {top_setup.get('ticker','?')} — {top_setup.get('grade','?')} ({top_setup.get('grade_score',0)}/100)",
+            f"**{top_setup.get('setup','')}**",
+            f"RS {top_setup.get('rs',0)} · Stage {top_setup.get('stage','?')} · {top_setup.get('phase','?')}",
+            f"Grade breakdown: {gd.get('summary', 'N/A')}",
         ]
 
     if threats:
         lines += ["", "## DIVERGENCE ALERTS"]
         for t in threats[:3]:
-            lines.append(f"- **{t['tk']}**: {t.get('type','—')} (threat {t.get('sc','—')}/10)")
+            lines.append(f"- **{t.get('tk', t.get('ticker','?'))}**: {t.get('type','—')} (threat {t.get('sc', t.get('threat_score','—'))}/10)")
 
     lines += [
         "", "## ACTION ITEMS",
@@ -1231,6 +1232,19 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 async def global_exception_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"error": str(exc), "type": type(exc).__name__})
 
+def _conv_details_to_list(details) -> list:
+    """Convert convergenceDetails dict to list for frontend checklist."""
+    if isinstance(details, list):
+        return details
+    if isinstance(details, dict):
+        return [
+            {"name": k, "label": v.get("note", k), "pass": v.get("pass", False),
+             "detail": v.get("note", ""), "pts": v.get("pts", 0)}
+            for k, v in details.items()
+        ]
+    return []
+
+
 def _normalize_stock(s: dict) -> dict:
     """Flatten abbreviated backend fields into frontend-friendly shape."""
     grade_obj = s.get("grade", {})
@@ -1240,6 +1254,7 @@ def _normalize_stock(s: dict) -> dict:
     mn = s.get("min", {})
     vcp = s.get("vcp", {})
     fund = s.get("fundamentals", {})
+    techs = s.get("technicals", {})
     flat = {
         "ticker": s.get("tk", ""),
         "symbol": s.get("tk", ""),
@@ -1281,10 +1296,23 @@ def _normalize_stock(s: dict) -> dict:
         "target1": grade_obj.get("target1") if isinstance(grade_obj, dict) else None,
         "target2": grade_obj.get("target2") if isinstance(grade_obj, dict) else None,
         "rrRatio": grade_obj.get("rrRatio", 0) if isinstance(grade_obj, dict) else 0,
+        # Derived fields for Analyze page
+        "high_52w": techs.get("high52"),
+        "week52_high": techs.get("high52"),
+        "low_52w": techs.get("low52"),
+        "week52_low": techs.get("low52"),
+        "pct_from_52h": techs.get("pct_from_52h"),
+        "pctFrom52l": techs.get("pctFrom52l"),
+        "market_cap": fund.get("marketCap", 0),
+        "marketCap": fund.get("marketCap", 0),
+        # Convergence checklist — convert dict to list for frontend
+        "checklist": _conv_details_to_list(s.get("convergenceDetails", s.get("checklist"))),
+        "convergence_checklist": _conv_details_to_list(s.get("convergenceDetails")),
+        "convergenceDetails": s.get("convergenceDetails"),
         # Preserve full nested data for deep analysis
         "wein": wein, "min": mn, "kell": kell, "conv": conv,
         "vcp": vcp, "fundamentals": fund,
-        "technicals": s.get("technicals", {}),
+        "technicals": techs,
         "srLevels": s.get("srLevels", []),
         "shortConv": s.get("shortConv", {}),
         "finra": s.get("finra", {}),
@@ -1739,16 +1767,21 @@ def get_earnings():
 def get_daily_brief():
     cached = cache_get("brief", CACHE_BRIEF)
     if cached: return cached
-    wl_cached = cache_get("watchlist", CACHE_WATCHLIST * 2)
-    br_cached = cache_get("breadth", CACHE_BREADTH * 2)
-    th_cached = cache_get("threats", CACHE_THREATS * 2)
-    watchlist_data = (wl_cached or {}).get("stocks", [])
-    breadth_data = br_cached or _mkt_snapshot
-    threats_data = (th_cached or {}).get("threats", [])
-    content = generate_daily_brief(watchlist_data, breadth_data, threats_data)
-    resp = {**content, "generatedAt": datetime.utcnow().isoformat()}
-    cache_set("brief", resp)
-    return resp
+    try:
+        wl_cached = cache_get("watchlist", CACHE_WATCHLIST * 2)
+        br_cached = cache_get("breadth", CACHE_BREADTH * 2)
+        th_cached = cache_get("threats", CACHE_THREATS * 2)
+        watchlist_data = (wl_cached or {}).get("stocks", [])
+        breadth_data = br_cached or _mkt_snapshot
+        threats_data = (th_cached or {}).get("threats", [])
+        content = generate_daily_brief(watchlist_data, breadth_data, threats_data)
+        resp = {**content, "generatedAt": datetime.utcnow().isoformat()}
+        cache_set("brief", resp)
+        return resp
+    except Exception as e:
+        log.error(f"Brief generation error: {e}")
+        return {"tier1": f"# MKW BRIEF\n\nBrief generation encountered an error: {e}\n\nData may still be loading. Retry in a few minutes.",
+                "tier2": None, "error": str(e), "generatedAt": datetime.utcnow().isoformat()}
 
 @app.get("/api/brief")
 def get_brief():
