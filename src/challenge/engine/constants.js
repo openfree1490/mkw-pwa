@@ -72,6 +72,12 @@ export const SETUP_TYPES = [
   { key: 'mean_reversion', label: 'Mean Reversion', icon: '↩' },
   { key: 'sr_rejection', label: 'S/R Rejection', icon: '⊘' },
   { key: 'other', label: 'Other', icon: '◎' },
+  { key: 'stage4_breakdown', label: 'Stage 4 Breakdown', icon: '▼' },
+  { key: 'failed_breakout_short', label: 'Failed Breakout', icon: '◇' },
+  { key: 'distribution_top', label: 'Distribution Top', icon: '▽' },
+  { key: 'parabolic_exhaustion', label: 'Parabolic Exhaustion', icon: '⊗' },
+  { key: 'ema_rejection_short', label: 'EMA Rejection', icon: '↘' },
+  { key: 'earnings_gap_fade', label: 'Earnings Gap Fade', icon: '⊖' },
 ]
 
 export const REVIEW_CRITERIA = [

@@ -42,6 +42,7 @@ from journal import (
 import qullamaggie as qull
 from trade_rules import generate_trade_plan, calculate_r_multiple
 from indicators import get_qullamaggie_snapshot
+import short_setups
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("mkw")
@@ -808,6 +809,9 @@ def analyze_ticker(ticker: str, spy_df: pd.DataFrame, mkt: dict) -> Optional[dic
                 "score": short_s, "max": 22, "zone": short_z,
                 "invTpl": inv_criteria, "invScore": inv_score,
             },
+            "shortSetups": short_setups.detect_all_short_setups(
+                ticker, df, wein, rs, phase, finra_data, technicals, sr_levels, fund
+            ),
             "grade": quick_grade,
             "setup": build_setup_text(ticker, wein, tpl_score, rs, phase, vcp, conv_z),
             "risk": f"Stage {wein['stage']} · RS {rs} · {phase}",
@@ -1859,6 +1863,210 @@ def get_trade_ideas(ticker: str):
     except Exception as e:
         log.error(f"Trade ideas error for {ticker}: {e}")
         return {"error": str(e), "ticker": ticker}
+
+@app.get("/api/todays-watch")
+def get_todays_watch():
+    """
+    Today's Watch — Top 5 plays of the day (long or short), curated from full universe.
+    Runs short_setups detection + existing long convergence, ranks by composite score.
+    """
+    key = "todays_watch"
+    cached = cache_get(key, CACHE_WATCHLIST)
+    if cached:
+        return cached
+
+    try:
+        spy_df = get_spy()
+        if spy_df is None:
+            return {"plays": [], "generated": datetime.utcnow().isoformat()}
+        mkt = _mkt_snapshot
+
+        plays = []
+
+        def _score_ticker(tk):
+            try:
+                result = analyze_ticker(tk, spy_df, mkt)
+                if result is None:
+                    return None
+
+                df = fetch_ohlcv(tk, "2y")
+                if df is None or len(df) < 60:
+                    return None
+
+                wein = result.get("wein", {})
+                rs = result.get("min", {}).get("rs", 50)
+                phase = result.get("kell", {}).get("phase", "Unknown")
+                finra_data = result.get("finra", {})
+                technicals = result.get("technicals", {})
+                sr_levels = result.get("srLevels", [])
+                fund = result.get("fundamentals", {})
+                conv = result.get("conv", {})
+                short_conv = result.get("shortConv", {})
+                grade = result.get("grade", {})
+                grade_score = grade.get("totalScore", 0) if isinstance(grade, dict) else 0
+
+                # Run short setup detection
+                short_detected = short_setups.detect_all_short_setups(
+                    tk, df, wein, rs, phase, finra_data, technicals, sr_levels, fund
+                )
+
+                candidates = []
+
+                # Long candidate: use existing convergence + grade
+                if conv.get("zone") in ("CONVERGENCE", "SECONDARY") and grade_score >= 60:
+                    vcp = result.get("vcp", {})
+                    tpl_score = result.get("min", {}).get("tplScore", 0)
+                    price = result.get("px", 0)
+
+                    # Calculate entry/stop/target from existing data
+                    pivot = vcp.get("pivot")
+                    entry = pivot if pivot else price
+                    atr_approx = price * 0.02  # rough ATR estimate
+                    stop = entry - atr_approx * 2
+                    target = entry + atr_approx * 6
+
+                    composite = int(grade_score * 0.5 + conv.get("score", 0) * 2 + tpl_score * 2 + min(rs, 99) * 0.2)
+
+                    candidates.append({
+                        "ticker": tk,
+                        "name": result.get("nm", tk),
+                        "direction": "LONG",
+                        "setupType": conv.get("zone", ""),
+                        "setupDetail": result.get("setup", ""),
+                        "confidence": min(95, composite),
+                        "compositeScore": composite,
+                        "entry": round(entry, 2),
+                        "stop": round(max(0.01, stop), 2),
+                        "target": round(target, 2),
+                        "grade": grade,
+                        "gradeScore": grade_score,
+                        "signals": [
+                            f"Stage {wein.get('stage', '?')}",
+                            f"RS {rs}",
+                            f"TPL {tpl_score}/8",
+                            f"{phase}",
+                            f"Conv {conv.get('score', 0)}/{conv.get('max', 23)}",
+                        ],
+                        "weinStage": wein.get("stage", "?"),
+                        "rs": rs,
+                        "tplScore": tpl_score,
+                        "phase": phase,
+                        "price": price,
+                        "sector": result.get("sector", ""),
+                    })
+
+                # Short candidates from short_setups
+                for setup in short_detected:
+                    price = result.get("px", 0)
+                    composite = int(setup["confidence"] * 0.7 + short_conv.get("score", 0) * 1.5 + (100 - rs) * 0.15)
+
+                    candidates.append({
+                        "ticker": tk,
+                        "name": result.get("nm", tk),
+                        "direction": "SHORT",
+                        "setupType": setup["type"],
+                        "setupDetail": setup["reason"],
+                        "confidence": setup["confidence"],
+                        "compositeScore": composite,
+                        "entry": setup["entry"],
+                        "stop": setup["stop"],
+                        "target": setup["target"],
+                        "grade": grade,
+                        "gradeScore": grade_score,
+                        "signals": setup["signals"],
+                        "weinStage": wein.get("stage", "?"),
+                        "rs": rs,
+                        "tplScore": result.get("min", {}).get("tplScore", 0),
+                        "phase": phase,
+                        "price": price,
+                        "sector": result.get("sector", ""),
+                    })
+
+                return candidates
+            except Exception as e:
+                log.warning(f"todays_watch score {tk}: {e}")
+                return None
+
+        with ThreadPoolExecutor(max_workers=5) as ex:
+            all_results = list(ex.map(_score_ticker, WATCHLIST))
+
+        for r in all_results:
+            if r:
+                plays.extend(r)
+
+        # Sort by composite score and take top 5
+        plays.sort(key=lambda x: x.get("compositeScore", 0), reverse=True)
+        top5 = plays[:5]
+
+        # Add rank
+        for i, play in enumerate(top5):
+            play["rank"] = i + 1
+
+        result = to_python({
+            "plays": top5,
+            "totalScanned": len(WATCHLIST),
+            "totalCandidates": len(plays),
+            "generated": datetime.utcnow().isoformat(),
+        })
+        cache_set(key, result)
+        return result
+
+    except Exception as e:
+        log.error(f"Today's Watch error: {e}")
+        return {"plays": [], "error": str(e), "generated": datetime.utcnow().isoformat()}
+
+
+@app.get("/api/short-setups/{ticker}")
+def get_short_setups(ticker: str):
+    """Get all detected short setups for a specific ticker."""
+    ticker = ticker.upper().strip()
+    key = f"short_setups_{ticker}"
+    cached = cache_get(key, CACHE_TECHNICALS)
+    if cached:
+        return cached
+
+    try:
+        df = fetch_ohlcv(ticker, "2y")
+        if df is None:
+            raise HTTPException(404, f"No data for {ticker}")
+
+        spy_df = get_spy()
+        mkt = _mkt_snapshot
+
+        wein = weinstein_stage(df)
+        rs = calc_rs_rating(df, spy_df) if spy_df is not None else 50
+        kell_result = kell_phase(df)
+        phase = kell_result[0]
+        fund = fetch_fundamentals(ticker)
+        technicals = calc_technicals(df)
+        sr_levels = calc_sr_levels(df)
+        finra_data = {}
+        try:
+            finra_data = finra.analyze_ticker(ticker)
+        except Exception:
+            pass
+
+        detected = short_setups.detect_all_short_setups(
+            ticker, df, wein, rs, phase, finra_data, technicals, sr_levels, fund
+        )
+
+        result = to_python({
+            "ticker": ticker,
+            "setups": detected,
+            "count": len(detected),
+            "weinStage": wein.get("stage", "?"),
+            "rs": rs,
+            "phase": phase,
+        })
+        cache_set(key, result)
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"Short setups error for {ticker}: {e}")
+        return {"error": str(e), "ticker": ticker, "setups": []}
+
 
 @app.get("/api/technicals/{ticker}")
 def get_technicals(ticker: str):
