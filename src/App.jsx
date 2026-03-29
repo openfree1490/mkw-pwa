@@ -1,71 +1,37 @@
 import { useState, useEffect, useCallback, Component } from 'react'
 import ChallengeApp from './challenge/ChallengeApp.jsx'
+import { colors, fonts, radius, shadows, transitions, gradeColor as _gradeColor, zoneColor as _zoneColor } from './config/theme.js'
 
-// ── GOOGLE FONTS ──────────────────────────────────────────────────────────
-const FONT_LINK = "https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;800;900&family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap"
-
-// ── DESIGN TOKENS ─────────────────────────────────────────────────────────
+// ── DESIGN TOKENS (mapped from theme) ────────────────────────────────────
 const C = {
-  bg: '#020408', panel: '#080d16', raised: '#0e1520',
-  border: '#1a2535', borderHi: '#243247',
-  green: '#00ff88', red: '#ff2a44', gold: '#ffcc00',
-  blue: '#00ccff', purple: '#a855f7',
-  textBright: '#e8edf5', text: 'rgba(180,200,230,0.7)', textDim: 'rgba(180,200,230,0.35)',
+  bg: colors.bg.root, panel: colors.bg.surface, raised: colors.bg.elevated,
+  border: colors.border.subtle, borderHi: colors.border.default,
+  green: colors.signal.profit, red: colors.signal.loss, gold: colors.accent.warning,
+  blue: colors.accent.info, purple: colors.accent.secondary,
+  textBright: colors.text.primary, text: colors.text.secondary, textDim: colors.text.tertiary,
 }
-const FO = "'Orbitron', monospace"
-const FR = "'Rajdhani', sans-serif"
-const FM = "'Share Tech Mono', monospace"
+const FO = fonts.heading
+const FR = fonts.body
+const FM = fonts.mono
 
-const glow = (color, r = 12) => `0 0 ${r}px ${color}`
-const gradeColor = (g) => {
-  if (!g) return C.textDim
-  const s = String(g).toUpperCase()
-  if (s === 'AAA') return C.gold
-  if (s === 'AA' || s === 'AA+' || s === 'AA-') return C.green
-  if (s === 'A' || s === 'A+' || s === 'A-') return C.blue
-  if (s.startsWith('BBB')) return '#8899b4'
-  return C.red
-}
-const gradeGlow = (g) => {
-  const c = gradeColor(g)
-  if (c === '#8899b4') return 'none'
-  if (c === C.gold) return glow(C.gold, 20)
-  if (c === C.green) return glow(C.green, 15)
-  if (c === C.blue) return glow(C.blue, 12)
-  if (c === C.red) return glow(C.red, 12)
-  return 'none'
-}
-const zoneColor = (z) => {
-  if (!z) return C.textDim
-  const s = String(z).toUpperCase()
-  if (s.includes('CONVERGENCE')) return C.gold
-  if (s.includes('SECONDARY')) return C.blue
-  if (s.includes('BUILDING')) return C.purple
-  if (s.includes('SHORT')) return C.red
-  return C.textDim
-}
+const gradeColor = _gradeColor
+const zoneColor = _zoneColor
 
 // ── GLOBAL CSS ────────────────────────────────────────────────────────────
 const GLOBAL_CSS = `
-@import url('${FONT_LINK}');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 *{box-sizing:border-box;margin:0;padding:0;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
-html,body,#root{height:100%;width:100%;background:${C.bg};overflow:hidden}
+html,body,#root{height:100%;width:100%;background:${C.bg};overflow:hidden;scroll-behavior:smooth}
 body{overscroll-behavior:none}
 ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:${C.border};border-radius:2px}
 @keyframes pulse{0%,100%{opacity:0.4}50%{opacity:1}}
 @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 button{cursor:pointer;border:none;background:none;-webkit-tap-highlight-color:transparent}
 input,select,textarea{outline:none;-webkit-appearance:none}
+*:focus-visible{outline:2px solid ${colors.accent.primary};outline-offset:2px}
 `
 
 // ── REUSABLE PRIMITIVES ───────────────────────────────────────────────────
-const Scanline = () => (
-  <div style={{
-    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-    pointerEvents: 'none', zIndex: 9999, opacity: 0.03,
-    background: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.05) 2px, rgba(255,255,255,0.05) 4px)',
-  }} />
-)
 
 const DataStatusBar = () => {
   const [status, setStatus] = useState(null)
@@ -88,7 +54,7 @@ const DataStatusBar = () => {
       </div>
       {expanded && (
         <div style={{ padding: 10, background: C.panel, borderBottom: `1px solid ${C.border}`, animation: 'fadeIn 0.15s ease' }}>
-          <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim, marginBottom: 6 }}>DATA SOURCES</div>
+          <div style={{ fontFamily: FO, fontWeight: 600, fontSize: 11, letterSpacing: '0.06em', color: C.textDim, marginBottom: 6, textTransform: 'uppercase' }}>DATA SOURCES</div>
           {[
             { name: 'Polygon.io', key: 'polygon', detail: status.polygon?.connected ? 'Connected — primary data' : 'Not configured' },
             { name: 'FINRA', key: 'finra', detail: status.finra?.ok ? `${status.finra.data_tickers || 0} tickers tracked` : 'Pending download' },
@@ -108,14 +74,14 @@ const DataStatusBar = () => {
 
 const Loading = ({ text = 'SCANNING...' }) => (
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40, flexDirection: 'column', gap: 12 }}>
-    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 12, letterSpacing: 3, color: C.blue, animation: 'pulse 1.5s infinite', textShadow: glow(C.blue, 8) }}>{text}</div>
+    <div style={{ fontFamily: FO, fontWeight: 600, fontSize: 13, letterSpacing: '0.06em', color: C.blue, animation: 'pulse 1.5s infinite' }}>{text}</div>
   </div>
 )
 
 const ErrorMsg = ({ msg, onRetry }) => (
   <div style={{ padding: 20, textAlign: 'center' }}>
     <div style={{ fontFamily: FR, fontSize: 13, color: C.red, marginBottom: 12 }}>{msg || 'Error loading data'}</div>
-    {onRetry && <button onClick={onRetry} style={{ fontFamily: FO, fontWeight: 700, fontSize: 10, letterSpacing: 2, color: C.blue, padding: '6px 16px', border: `1px solid ${C.blue}`, borderRadius: 4, background: 'transparent' }}>RETRY</button>}
+    {onRetry && <button onClick={onRetry} style={{ fontFamily: FO, fontWeight: 600, fontSize: 12, letterSpacing: '0.02em', color: colors.accent.primary, padding: '8px 18px', border: `1px solid ${colors.accent.primary}`, borderRadius: radius.sm, background: 'transparent', textTransform: 'uppercase' }}>RETRY</button>}
   </div>
 )
 
@@ -125,10 +91,9 @@ const EmptyState = ({ text }) => (
   </div>
 )
 
-const Panel = ({ children, style, borderColor, glow: glowColor }) => (
+const Panel = ({ children, style, borderColor, glow: _glow }) => (
   <div style={{
-    background: C.panel, borderRadius: 8, border: `1px solid ${borderColor || C.border}`,
-    boxShadow: glowColor ? `0 0 12px ${glowColor}33, inset 0 1px 0 rgba(255,255,255,0.03)` : 'inset 0 1px 0 rgba(255,255,255,0.03)',
+    background: C.panel, borderRadius: radius.lg, border: `1px solid ${borderColor || C.border}`,
     overflow: 'hidden', ...style,
   }}>{children}</div>
 )
@@ -136,13 +101,13 @@ const Panel = ({ children, style, borderColor, glow: glowColor }) => (
 const SectionHeader = ({ title, right, onClick, expanded }) => (
   <div onClick={onClick} style={{
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '10px 14px', cursor: onClick ? 'pointer' : 'default',
+    padding: '12px 16px', cursor: onClick ? 'pointer' : 'default',
     borderBottom: `1px solid ${C.border}`,
   }}>
-    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 11, letterSpacing: 2.5, color: C.textBright, textTransform: 'uppercase' }}>{title}</div>
+    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 14, color: C.textBright }}>{title}</div>
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       {right}
-      {onClick != null && <span style={{ fontFamily: FM, fontSize: 11, color: C.textDim }}>{expanded ? '▲' : '▼'}</span>}
+      {onClick != null && <span style={{ fontSize: 11, color: C.textDim }}>{expanded ? '\u25B2' : '\u25BC'}</span>}
     </div>
   </div>
 )
@@ -161,17 +126,17 @@ const Pct = ({ v, size = 13 }) => {
   if (v == null || isNaN(v)) return <span style={{ color: C.textDim, fontSize: size, fontFamily: FM }}>—</span>
   const n = Number(v)
   const c = n >= 0 ? C.green : C.red
-  return <span style={{ color: c, fontSize: size, fontFamily: FM, textShadow: glow(c, 6) }}>{n >= 0 ? '+' : ''}{n.toFixed(2)}%</span>
+  return <span style={{ color: c, fontSize: size, fontFamily: FM }}>{n >= 0 ? '+' : ''}{n.toFixed(2)}%</span>
 }
 
 const Mono = ({ children, color, size = 12, style: s }) => (
-  <span style={{ fontFamily: FM, fontSize: size, color: color || C.textBright, textShadow: color ? glow(color, 6) : 'none', ...s }}>{children}</span>
+  <span style={{ fontFamily: FM, fontSize: size, color: color || C.textBright, ...s }}>{children}</span>
 )
 
 const GradeBadge = ({ grade, size = 22 }) => {
   const c = gradeColor(grade)
   return (
-    <span style={{ fontFamily: FO, fontWeight: 900, fontSize: size, color: c, textShadow: gradeGlow(grade), letterSpacing: 1 }}>
+    <span style={{ fontFamily: FM, fontWeight: 700, fontSize: size, color: c, letterSpacing: '0.02em' }}>
       {grade || '—'}
     </span>
   )
@@ -181,9 +146,9 @@ const ZoneBadge = ({ zone }) => {
   const c = zoneColor(zone)
   return (
     <span style={{
-      fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 1.5,
-      color: c, textShadow: glow(c, 6), padding: '2px 8px',
-      border: `1px solid ${c}44`, borderRadius: 3, background: `${c}11`,
+      fontFamily: FO, fontWeight: 600, fontSize: 10, letterSpacing: '0.04em',
+      color: c, padding: '3px 10px', textTransform: 'uppercase',
+      border: `1px solid ${c}40`, borderRadius: radius.sm, background: `${c}18`,
     }}>{zone || 'WATCH'}</span>
   )
 }
@@ -192,10 +157,10 @@ const TabBar = ({ tabs, active, onSelect }) => (
   <div style={{ display: 'flex', gap: 0, overflowX: 'auto', borderBottom: `1px solid ${C.border}`, padding: '0 8px' }}>
     {tabs.map(t => (
       <button key={t} onClick={() => onSelect(t)} style={{
-        fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2,
-        color: active === t ? C.blue : C.textDim, padding: '10px 12px', flexShrink: 0,
-        borderBottom: active === t ? `2px solid ${C.blue}` : '2px solid transparent',
-        transition: 'all 0.2s',
+        fontFamily: FO, fontWeight: active === t ? 600 : 500, fontSize: 13,
+        color: active === t ? C.textBright : C.textDim, padding: '12px 18px', flexShrink: 0,
+        borderBottom: active === t ? `2px solid ${colors.accent.primary}` : '2px solid transparent',
+        transition: transitions.normal,
       }}>{t}</button>
     ))}
   </div>
@@ -205,8 +170,7 @@ const TrafficLight = ({ color }) => {
   const c = color === 'green' ? C.green : color === 'red' ? C.red : C.gold
   return (
     <div style={{
-      width: 14, height: 14, borderRadius: '50%', background: c,
-      boxShadow: `0 0 10px ${c}, 0 0 20px ${c}55`, flexShrink: 0,
+      width: 12, height: 12, borderRadius: '50%', background: c, flexShrink: 0,
     }} />
   )
 }
@@ -312,28 +276,28 @@ function HomePage() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
             {[{ label: 'SPX', d: spx }, { label: 'NDX', d: ndx }, { label: 'RUT', d: rut }].map(({ label, d }) => (
               <div key={label} style={{ background: C.raised, borderRadius: 6, padding: 8, textAlign: 'center' }}>
-                <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 10, letterSpacing: 2, color: C.textDim, marginBottom: 4 }}>{label}</div>
-                <div style={{ fontFamily: FO, fontWeight: 900, fontSize: 13, color: C.textBright }}>{d.stageLabel || d.weinstein_stage || d.stage || '—'}</div>
+                <div style={{ fontFamily: FO, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", color: C.textDim, marginBottom: 4 }}>{label}</div>
+                <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 14, color: C.textBright }}>{d.stageLabel || d.weinstein_stage || d.stage || '—'}</div>
               </div>
             ))}
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim }}>VIX</div>
+              <div style={{ fontFamily: FO, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", color: C.textDim }}>VIX</div>
               <Mono size={16} color={Number(vix) > 25 ? C.red : Number(vix) > 18 ? C.gold : C.green}>{typeof vix === 'number' ? vix.toFixed(1) : vix}</Mono>
             </div>
             <div>
-              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim }}>TEMPLATES</div>
+              <div style={{ fontFamily: FO, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", color: C.textDim }}>TEMPLATES</div>
               <Mono size={16} color={C.blue}>{templateCount}</Mono>
             </div>
             <div>
-              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim }}>KELL LIGHT</div>
-              <div style={{ fontFamily: FO, fontWeight: 900, fontSize: 13, color: kellLight === 'green' ? C.green : kellLight === 'red' ? C.red : C.gold, textShadow: glow(kellLight === 'green' ? C.green : kellLight === 'red' ? C.red : C.gold, 10) }}>{kellLight.toUpperCase()}</div>
+              <div style={{ fontFamily: FO, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", color: C.textDim }}>KELL LIGHT</div>
+              <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 14, color: kellLight === 'green' ? C.green : kellLight === 'red' ? C.red : C.gold }}>{kellLight.toUpperCase()}</div>
             </div>
           </div>
           {/* Environment Verdict */}
           <div style={{ background: C.raised, borderRadius: 6, padding: 10 }}>
-            <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim, marginBottom: 4 }}>ENVIRONMENT VERDICT</div>
+            <div style={{ fontFamily: FO, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", color: C.textDim, marginBottom: 4 }}>ENVIRONMENT VERDICT</div>
             <div style={{ fontFamily: FR, fontWeight: 600, fontSize: 13, color: kellLight === 'green' ? C.green : kellLight === 'red' ? C.red : C.gold, lineHeight: 1.5 }}>
               {kellLight === 'green' ? 'Favorable. Full position sizing permitted. Deploy into A+ setups.' : kellLight === 'red' ? 'Hostile. Reduce exposure 50-75%. Only AAA convergence plays.' : 'Caution. Half position sizes. Tighten stops.'}
             </div>
@@ -348,24 +312,24 @@ function HomePage() {
           <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim }}>MACRO SCORE</div>
+                <div style={{ fontFamily: FO, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", color: C.textDim }}>MACRO SCORE</div>
                 <Mono size={20} color={macroData.score.color === 'green' ? C.green : macroData.score.color === 'red' ? C.red : C.gold}>{macroData.score.score}/10</Mono>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim }}>SIZING</div>
+                <div style={{ fontFamily: FO, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", color: C.textDim }}>SIZING</div>
                 <Mono size={11} color={C.text}>{macroData.score.sizing}</Mono>
               </div>
             </div>
             {macroData.rates && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
-                {macroData.rates.ten_year != null && <div style={{ background: C.raised, borderRadius: 4, padding: 6, textAlign: 'center' }}><div style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1, color: C.textDim }}>10Y</div><Mono size={12}>{Number(macroData.rates.ten_year).toFixed(2)}%</Mono></div>}
-                {macroData.rates.two_year != null && <div style={{ background: C.raised, borderRadius: 4, padding: 6, textAlign: 'center' }}><div style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1, color: C.textDim }}>2Y</div><Mono size={12}>{Number(macroData.rates.two_year).toFixed(2)}%</Mono></div>}
-                {macroData.rates.yield_curve != null && <div style={{ background: C.raised, borderRadius: 4, padding: 6, textAlign: 'center' }}><div style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1, color: C.textDim }}>CURVE</div><Mono size={12} color={Number(macroData.rates.yield_curve) > 0 ? C.green : C.red}>{Number(macroData.rates.yield_curve).toFixed(2)}</Mono></div>}
+                {macroData.rates.ten_year != null && <div style={{ background: C.raised, borderRadius: 4, padding: 6, textAlign: 'center' }}><div style={{ fontFamily: FO, fontWeight: 600, fontSize: 10, letterSpacing: "0.06em", color: C.textDim }}>10Y</div><Mono size={12}>{Number(macroData.rates.ten_year).toFixed(2)}%</Mono></div>}
+                {macroData.rates.two_year != null && <div style={{ background: C.raised, borderRadius: 4, padding: 6, textAlign: 'center' }}><div style={{ fontFamily: FO, fontWeight: 600, fontSize: 10, letterSpacing: "0.06em", color: C.textDim }}>2Y</div><Mono size={12}>{Number(macroData.rates.two_year).toFixed(2)}%</Mono></div>}
+                {macroData.rates.yield_curve != null && <div style={{ background: C.raised, borderRadius: 4, padding: 6, textAlign: 'center' }}><div style={{ fontFamily: FO, fontWeight: 600, fontSize: 10, letterSpacing: "0.06em", color: C.textDim }}>CURVE</div><Mono size={12} color={Number(macroData.rates.yield_curve) > 0 ? C.green : C.red}>{Number(macroData.rates.yield_curve).toFixed(2)}</Mono></div>}
               </div>
             )}
             {macroData.events && macroData.events.length > 0 && (
               <div>
-                <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 2, color: C.textDim, marginBottom: 4 }}>UPCOMING EVENTS</div>
+                <div style={{ fontFamily: FO, fontWeight: 600, fontSize: 10, letterSpacing: "0.06em", color: C.textDim, marginBottom: 4 }}>UPCOMING EVENTS</div>
                 {macroData.events.slice(0, 3).map((e, i) => (
                   <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
                     <Mono size={10} color={e.imminent ? C.red : C.text}>{e.name}</Mono>
@@ -381,7 +345,7 @@ function HomePage() {
       {/* No AAA Banner */}
       {!hasAAA && (
         <div style={{ background: `${C.gold}11`, border: `1px solid ${C.gold}44`, borderRadius: 8, padding: 14, textAlign: 'center' }}>
-          <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 11, letterSpacing: 2, color: C.gold, textShadow: glow(C.gold, 8) }}>NO AAA SETUPS</div>
+          <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 11, letterSpacing: "0.04em", color: C.gold }}>NO AAA SETUPS</div>
           <div style={{ fontFamily: FR, fontWeight: 500, fontSize: 12, color: C.text, marginTop: 4 }}>Capital preservation IS a position.</div>
         </div>
       )}
@@ -393,11 +357,11 @@ function HomePage() {
           {sorted.length === 0 && <EmptyState text="No names in radar." />}
           {[{ label: 'CONVERGENCE', items: convergence, color: C.gold }, { label: 'SECONDARY', items: secondary, color: C.blue }, { label: 'BUILDING', items: building, color: C.purple }].map(({ label, items: group, color }) => group.length > 0 && (
             <div key={label} style={{ marginBottom: 8 }}>
-              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color, textShadow: glow(color, 6), padding: '4px 8px' }}>{label}</div>
+              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: "0.04em", color, padding: '4px 8px' }}>{label}</div>
               {group.map((s, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 8px', borderBottom: `1px solid ${C.border}22` }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontFamily: FO, fontWeight: 900, fontSize: 13, color: C.textBright }}>{s.ticker || s.symbol}</span>
+                    <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 14, color: C.textBright }}>{s.ticker || s.symbol}</span>
                     <GradeBadge grade={s.grade} size={11} />
                   </div>
                   <Mono size={11} color={color}>{s.convergence_score ?? s.score ?? '—'}/23</Mono>
@@ -415,16 +379,16 @@ function HomePage() {
           <div style={{ padding: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
               <div>
-                <div style={{ fontFamily: FO, fontWeight: 900, fontSize: 22, color: C.textBright }}>{topSetup.ticker || topSetup.symbol}</div>
+                <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 22, color: C.textBright }}>{topSetup.ticker || topSetup.symbol}</div>
                 <div style={{ fontFamily: FR, fontWeight: 500, fontSize: 12, color: C.text }}>{topSetup.name || topSetup.company || ''}</div>
               </div>
               <GradeBadge grade={topSetup.grade} size={32} />
             </div>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              <div><div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim }}>PRICE</div><Mono size={14}>${topSetup.price != null ? Number(topSetup.price).toFixed(2) : '—'}</Mono></div>
-              <div><div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim }}>SCORE</div><Mono size={14} color={zoneColor(topSetup.zone)}>{topSetup.convergence_score ?? topSetup.score ?? '—'}/23</Mono></div>
-              <div><div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim }}>ZONE</div><ZoneBadge zone={topSetup.zone} /></div>
-              <div><div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim }}>STAGE</div><Mono size={14}>{topSetup.stage || topSetup.weinstein_stage || '—'}</Mono></div>
+              <div><div style={{ fontFamily: FO, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", color: C.textDim }}>PRICE</div><Mono size={14}>${topSetup.price != null ? Number(topSetup.price).toFixed(2) : '—'}</Mono></div>
+              <div><div style={{ fontFamily: FO, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", color: C.textDim }}>SCORE</div><Mono size={14} color={zoneColor(topSetup.zone)}>{topSetup.convergence_score ?? topSetup.score ?? '—'}/23</Mono></div>
+              <div><div style={{ fontFamily: FO, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", color: C.textDim }}>ZONE</div><ZoneBadge zone={topSetup.zone} /></div>
+              <div><div style={{ fontFamily: FO, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", color: C.textDim }}>STAGE</div><Mono size={14}>{topSetup.stage || topSetup.weinstein_stage || '—'}</Mono></div>
             </div>
           </div>
         </Panel>
@@ -453,8 +417,8 @@ function HomePage() {
               {qullDual.map((s, i) => (
                 <div key={`dc-${i}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: `1px solid ${C.border}22` }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontFamily: FO, fontWeight: 900, fontSize: 13, color: C.gold, textShadow: glow(C.gold, 8) }}>{s.ticker}</span>
-                    <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1, color: C.bg, background: C.gold, padding: '1px 5px', borderRadius: 2 }}>DUAL CONV</span>
+                    <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 14, color: C.gold }}>{s.ticker}</span>
+                    <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: "0.02em", color: C.bg, background: C.gold, padding: '1px 5px', borderRadius: 2 }}>DUAL CONV</span>
                   </div>
                   <Mono size={10} color={C.gold}>{s.qull_best_score}/100</Mono>
                 </div>
@@ -462,8 +426,8 @@ function HomePage() {
               {qullTriggering.filter(s => !s.qull_dual_convergence).map((s, i) => (
                 <div key={`tr-${i}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: `1px solid ${C.border}22` }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontFamily: FO, fontWeight: 900, fontSize: 13, color: C.textBright }}>{s.ticker}</span>
-                    <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1, color: C.bg, background: C.green, padding: '1px 5px', borderRadius: 2 }}>TRIGGERING</span>
+                    <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 14, color: C.textBright }}>{s.ticker}</span>
+                    <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: "0.02em", color: C.bg, background: C.green, padding: '1px 5px', borderRadius: 2 }}>TRIGGERING</span>
                     <Mono size={9} color={C.textDim}>{s.qull_best_setup?.replace('_', ' ')}</Mono>
                   </div>
                   <Mono size={10} color={C.green}>{s.qull_best_score}/100</Mono>
@@ -527,9 +491,9 @@ function StockCard({ s, expanded, onToggle, techCache, srCache, onLoadDetails })
         </div>
         <div style={{ fontFamily: FR, fontWeight: 500, fontSize: 11, color: C.textDim, marginBottom: 6 }}>{s.name || s.company || ''}</div>
         <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-          <div><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1.5, color: C.textDim }}>DAY </span><Pct v={s.day_change ?? s.change_1d} size={11} /></div>
-          <div><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1.5, color: C.textDim }}>WK </span><Pct v={s.week_change ?? s.change_1w} size={11} /></div>
-          <div><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1.5, color: C.textDim }}>MO </span><Pct v={s.month_change ?? s.change_1m} size={11} /></div>
+          <div><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: "0.03em", color: C.textDim }}>DAY </span><Pct v={s.day_change ?? s.change_1d} size={11} /></div>
+          <div><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: "0.03em", color: C.textDim }}>WK </span><Pct v={s.week_change ?? s.change_1w} size={11} /></div>
+          <div><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: "0.03em", color: C.textDim }}>MO </span><Pct v={s.month_change ?? s.change_1m} size={11} /></div>
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
           <Mono size={10} color={C.textDim}>Score: <span style={{ color: zoneColor(s.zone) }}>{s.convergence_score ?? s.score ?? '—'}/23</span></Mono>
@@ -540,8 +504,8 @@ function StockCard({ s, expanded, onToggle, techCache, srCache, onLoadDetails })
           {s.finra?.svr_today != null && <Mono size={10} color={s.finra.color === 'green' ? C.green : s.finra.color === 'red' ? C.red : s.finra.color === 'yellow' ? C.gold : C.textDim}>SVR: {s.finra.svr_today}%</Mono>}
         </div>
         {(s.vcp || s.vcp_detected) && <div style={{ marginTop: 4 }}><Mono size={10} color={C.purple}>VCP Detected — {s.vcp_contractions || s.contractions || '?'} contractions</Mono></div>}
-        {s.qull_dual_convergence && <div style={{ marginTop: 4 }}><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1, color: C.bg, background: C.gold, padding: '1px 6px', borderRadius: 2 }}>DUAL CONVERGENCE</span></div>}
-        {s.qull_any_triggering && !s.qull_dual_convergence && <div style={{ marginTop: 4 }}><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1, color: C.bg, background: C.green, padding: '1px 6px', borderRadius: 2 }}>Q: {s.qull_best_setup?.replace('_', ' ')} TRIGGERING</span><Mono size={9} color={C.textDim}> {s.qull_best_score}/100</Mono></div>}
+        {s.qull_dual_convergence && <div style={{ marginTop: 4 }}><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: "0.02em", color: C.bg, background: C.gold, padding: '1px 6px', borderRadius: 2 }}>DUAL CONVERGENCE</span></div>}
+        {s.qull_any_triggering && !s.qull_dual_convergence && <div style={{ marginTop: 4 }}><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: "0.02em", color: C.bg, background: C.green, padding: '1px 6px', borderRadius: 2 }}>Q: {s.qull_best_setup?.replace('_', ' ')} TRIGGERING</span><Mono size={9} color={C.textDim}> {s.qull_best_score}/100</Mono></div>}
         {s.qull_any_setup && !s.qull_any_triggering && <div style={{ marginTop: 4 }}><Mono size={9} color={C.blue}>Q: {s.qull_best_setup?.replace('_', ' ')} ({s.qull_best_score}/100)</Mono></div>}
         {s.flags && s.flags.length > 0 && <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>{s.flags.map((f, i) => <span key={i} style={{ fontFamily: FM, fontSize: 9, color: C.gold, background: `${C.gold}11`, border: `1px solid ${C.gold}33`, borderRadius: 3, padding: '1px 6px' }}>{f}</span>)}</div>}
       </div>
@@ -549,7 +513,7 @@ function StockCard({ s, expanded, onToggle, techCache, srCache, onLoadDetails })
         <div style={{ borderTop: `1px solid ${C.border}`, padding: 12, animation: 'fadeIn 0.2s ease' }}>
           {checklist.length > 0 && (
             <div style={{ marginBottom: 12 }}>
-              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim, marginBottom: 6 }}>CONVERGENCE CHECKLIST</div>
+              <div style={{ fontFamily: FO, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", color: C.textDim, marginBottom: 6 }}>CONVERGENCE CHECKLIST</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
                 {checklist.map((item, i) => {
                   const pass = item.pass ?? item.passed ?? item.met ?? item.status === 'pass'
@@ -566,11 +530,11 @@ function StockCard({ s, expanded, onToggle, techCache, srCache, onLoadDetails })
           )}
           {tech && (
             <div style={{ marginBottom: 12 }}>
-              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim, marginBottom: 6 }}>TECHNICALS</div>
+              <div style={{ fontFamily: FO, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", color: C.textDim, marginBottom: 6 }}>TECHNICALS</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4 }}>
                 {Object.entries(tech).filter(([k]) => !['ticker', 'symbol', 'error'].includes(k)).slice(0, 12).map(([k, v]) => (
                   <div key={k} style={{ background: C.raised, borderRadius: 4, padding: '4px 6px' }}>
-                    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1, color: C.textDim, textTransform: 'uppercase' }}>{k.replace(/_/g, ' ')}</div>
+                    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: "0.02em", color: C.textDim, textTransform: 'uppercase' }}>{k.replace(/_/g, ' ')}</div>
                     <Mono size={10}>{typeof v === 'number' ? v.toFixed(2) : String(v ?? '—')}</Mono>
                   </div>
                 ))}
@@ -579,7 +543,7 @@ function StockCard({ s, expanded, onToggle, techCache, srCache, onLoadDetails })
           )}
           {sr && (
             <div style={{ marginBottom: 12 }}>
-              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim, marginBottom: 6 }}>SUPPORT / RESISTANCE</div>
+              <div style={{ fontFamily: FO, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", color: C.textDim, marginBottom: 6 }}>SUPPORT / RESISTANCE</div>
               <div style={{ display: 'flex', gap: 16 }}>
                 <div>
                   <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, color: C.green, marginBottom: 2 }}>SUPPORT</div>
@@ -594,7 +558,7 @@ function StockCard({ s, expanded, onToggle, techCache, srCache, onLoadDetails })
           )}
           {(s.eps_growth || s.revenue_growth || s.fundamentals) && (
             <div>
-              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim, marginBottom: 6 }}>FUNDAMENTALS</div>
+              <div style={{ fontFamily: FO, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", color: C.textDim, marginBottom: 6 }}>FUNDAMENTALS</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4 }}>
                 {[
                   { k: 'EPS Growth', v: s.eps_growth ?? s.fundamentals?.eps_growth },
@@ -604,7 +568,7 @@ function StockCard({ s, expanded, onToggle, techCache, srCache, onLoadDetails })
                   { k: 'Market Cap', v: s.market_cap ?? s.fundamentals?.market_cap },
                 ].filter(x => x.v != null).map(({ k, v }) => (
                   <div key={k} style={{ background: C.raised, borderRadius: 4, padding: '4px 6px' }}>
-                    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1, color: C.textDim }}>{k}</div>
+                    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: "0.02em", color: C.textDim }}>{k}</div>
                     <Mono size={10}>{typeof v === 'number' ? (Math.abs(v) < 1 ? (v * 100).toFixed(1) + '%' : v.toFixed(2)) : String(v)}</Mono>
                   </div>
                 ))}
@@ -692,13 +656,13 @@ function WatchPage() {
       {/* Mode Toggle */}
       <div style={{ display: 'flex', gap: 0, margin: '0' }}>
         <button onClick={() => setMode('watchlist')} style={{
-          flex: 1, padding: '10px 0', fontFamily: FO, fontWeight: 700, fontSize: 10, letterSpacing: 2,
+          flex: 1, padding: '10px 0', fontFamily: FO, fontWeight: 700, fontSize: 10, letterSpacing: "0.04em",
           color: mode === 'watchlist' ? C.bg : C.textDim,
           background: mode === 'watchlist' ? C.blue : 'transparent',
           borderBottom: mode === 'watchlist' ? `2px solid ${C.blue}` : `1px solid ${C.border}`,
         }}>WATCHLIST</button>
         <button onClick={() => { setMode('scanners'); if (!scannerData) runScanner(activeScanner) }} style={{
-          flex: 1, padding: '10px 0', fontFamily: FO, fontWeight: 700, fontSize: 10, letterSpacing: 2,
+          flex: 1, padding: '10px 0', fontFamily: FO, fontWeight: 700, fontSize: 10, letterSpacing: "0.04em",
           color: mode === 'scanners' ? C.bg : C.textDim,
           background: mode === 'scanners' ? C.gold : 'transparent',
           borderBottom: mode === 'scanners' ? `2px solid ${C.gold}` : `1px solid ${C.border}`,
@@ -726,7 +690,7 @@ function WatchPage() {
           <div style={{ display: 'flex', gap: 0, overflowX: 'auto', borderBottom: `1px solid ${C.border}`, padding: '0 4px' }}>
             {scannerModules.map(m => (
               <button key={m.key} onClick={() => runScanner(m.key)} style={{
-                fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1,
+                fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: "0.02em",
                 color: activeScanner === m.key ? C.gold : C.textDim,
                 padding: '8px 10px', flexShrink: 0, whiteSpace: 'nowrap',
                 borderBottom: activeScanner === m.key ? `2px solid ${C.gold}` : '2px solid transparent',
@@ -740,7 +704,7 @@ function WatchPage() {
             {scannerData && (
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 4px' }}>
                 <div>
-                  <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 10, letterSpacing: 1, color: C.gold }}>{scannerData.scannerName || activeScanner}</div>
+                  <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 10, letterSpacing: "0.02em", color: C.gold }}>{scannerData.scannerName || activeScanner}</div>
                   <div style={{ fontFamily: FR, fontSize: 10, color: C.textDim }}>{scannerData.description || ''}</div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
@@ -752,7 +716,7 @@ function WatchPage() {
 
             {/* Refresh button */}
             <button onClick={() => runScanner(activeScanner)} style={{
-              fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2,
+              fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: "0.04em",
               color: C.bg, background: C.gold, padding: '6px 16px', borderRadius: 4, alignSelf: 'flex-end',
             }}>REFRESH</button>
 
@@ -768,7 +732,7 @@ function WatchPage() {
               return (
                 <div key={ticker}>
                   {/* Rank badge */}
-                  <div style={{ fontFamily: FO, fontWeight: 900, fontSize: 10, letterSpacing: 2, color: C.gold, padding: '2px 4px', marginBottom: 2 }}>
+                  <div style={{ fontFamily: FO, fontWeight: 900, fontSize: 10, letterSpacing: "0.04em", color: C.gold, padding: '2px 4px', marginBottom: 2 }}>
                     #{idx + 1}
                     {s.canslim_score != null && <span style={{ marginLeft: 8, fontFamily: FM, fontSize: 9, color: C.blue }}>CANSLIM: {s.canslim_score}/7</span>}
                     {s.watch_score != null && <span style={{ marginLeft: 8, fontFamily: FM, fontSize: 9, color: C.gold }}>WATCH: {s.watch_score}</span>}
@@ -826,8 +790,8 @@ function PlaysPage() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 10 }}>
       {/* Header + Add */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 12, letterSpacing: 2, color: C.textBright }}>OPEN POSITIONS</div>
-        <button onClick={() => setShowForm(!showForm)} style={{ fontFamily: FO, fontWeight: 700, fontSize: 10, letterSpacing: 1, color: C.green, padding: '5px 12px', border: `1px solid ${C.green}44`, borderRadius: 4, background: `${C.green}11` }}>{showForm ? 'CANCEL' : '+ ADD'}</button>
+        <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 12, letterSpacing: "0.04em", color: C.textBright }}>OPEN POSITIONS</div>
+        <button onClick={() => setShowForm(!showForm)} style={{ fontFamily: FO, fontWeight: 700, fontSize: 10, letterSpacing: "0.02em", color: C.green, padding: '5px 12px', border: `1px solid ${C.green}44`, borderRadius: 4, background: `${C.green}11` }}>{showForm ? 'CANCEL' : '+ ADD'}</button>
       </div>
 
       {/* Add Form */}
@@ -844,7 +808,7 @@ function PlaysPage() {
               <input placeholder="Target 1 $" value={form.target1} onChange={e => setForm({ ...form, target1: e.target.value })} style={inputStyle} type="number" step="0.01" />
               <input placeholder="Target 2 $" value={form.target2} onChange={e => setForm({ ...form, target2: e.target.value })} style={inputStyle} type="number" step="0.01" />
             </div>
-            <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim, marginTop: 4 }}>OPTION DETAILS (optional)</div>
+            <div style={{ fontFamily: FO, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", color: C.textDim, marginTop: 4 }}>OPTION DETAILS (optional)</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
               <select value={form.option_type} onChange={e => setForm({ ...form, option_type: e.target.value })} style={inputStyle}>
                 <option value="">None</option><option value="CALL">CALL</option><option value="PUT">PUT</option><option value="SPREAD">SPREAD</option>
@@ -853,7 +817,7 @@ function PlaysPage() {
               <input placeholder="Expiry" value={form.expiry} onChange={e => setForm({ ...form, expiry: e.target.value })} style={inputStyle} type="date" />
             </div>
             <input placeholder="Contracts" value={form.contracts} onChange={e => setForm({ ...form, contracts: e.target.value })} style={inputStyle} type="number" />
-            <button onClick={handleAdd} style={{ fontFamily: FO, fontWeight: 700, fontSize: 11, letterSpacing: 2, color: C.bg, background: C.green, padding: '10px 0', borderRadius: 4, width: '100%' }}>ADD POSITION</button>
+            <button onClick={handleAdd} style={{ fontFamily: FO, fontWeight: 700, fontSize: 11, letterSpacing: "0.04em", color: C.bg, background: C.green, padding: '10px 0', borderRadius: 4, width: '100%' }}>ADD POSITION</button>
           </div>
         </Panel>
       )}
@@ -876,7 +840,7 @@ function PlaysPage() {
                   <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, color: isLong ? C.green : C.red, padding: '1px 6px', border: `1px solid ${isLong ? C.green : C.red}44`, borderRadius: 3 }}>{p.direction || 'LONG'}</span>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontFamily: FM, fontSize: 14, color: pnlColor, textShadow: glow(pnlColor, 8) }}>{pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%</div>
+                  <div style={{ fontFamily: FM, fontSize: 14, color: pnlColor }}>{pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%</div>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
@@ -891,7 +855,7 @@ function PlaysPage() {
                 </div>
               )}
               <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
-                <button onClick={() => handleDelete(p.id)} style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1, color: C.red, padding: '3px 8px', border: `1px solid ${C.red}33`, borderRadius: 3 }}>CLOSE</button>
+                <button onClick={() => handleDelete(p.id)} style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: "0.02em", color: C.red, padding: '3px 8px', border: `1px solid ${C.red}33`, borderRadius: 3 }}>CLOSE</button>
               </div>
             </div>
           </Panel>
@@ -910,20 +874,20 @@ function PlaysPage() {
               { label: 'VEGA', v: gd.vega ?? gd.total_vega, color: C.purple },
             ].map(({ label, v, color }) => (
               <div key={label} style={{ background: C.raised, borderRadius: 4, padding: 6, textAlign: 'center' }}>
-                <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1.5, color: C.textDim }}>{label}</div>
+                <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: "0.03em", color: C.textDim }}>{label}</div>
                 <Mono size={12} color={color}>{v != null ? (typeof v === 'number' ? v.toFixed(2) : v) : '—'}</Mono>
               </div>
             ))}
           </div>
           {sectorBars.length > 0 && (
             <div>
-              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim, marginBottom: 6 }}>SECTOR EXPOSURE</div>
+              <div style={{ fontFamily: FO, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", color: C.textDim, marginBottom: 6 }}>SECTOR EXPOSURE</div>
               <BarChart data={sectorBars} />
             </div>
           )}
           {corrData.warnings && corrData.warnings.length > 0 && (
             <div>
-              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.red, marginBottom: 4 }}>CORRELATION WARNINGS</div>
+              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: "0.04em", color: C.red, marginBottom: 4 }}>CORRELATION WARNINGS</div>
               {corrData.warnings.map((w, i) => <div key={i} style={{ fontFamily: FR, fontSize: 11, color: C.red, padding: '2px 0' }}>{typeof w === 'string' ? w : w.message || JSON.stringify(w)}</div>)}
             </div>
           )}
@@ -953,9 +917,9 @@ function BriefPage() {
     return lines.map((line, i) => {
       const trimmed = line.trim()
       if (!trimmed) return <div key={i} style={{ height: 8 }} />
-      if (trimmed.startsWith('### ')) return <div key={i} style={{ fontFamily: FO, fontWeight: 700, fontSize: 11, letterSpacing: 2, color: C.blue, marginTop: 10, marginBottom: 4 }}>{trimmed.slice(4)}</div>
-      if (trimmed.startsWith('## ')) return <div key={i} style={{ fontFamily: FO, fontWeight: 700, fontSize: 12, letterSpacing: 2, color: C.textBright, marginTop: 12, marginBottom: 4 }}>{trimmed.slice(3)}</div>
-      if (trimmed.startsWith('# ')) return <div key={i} style={{ fontFamily: FO, fontWeight: 900, fontSize: 14, letterSpacing: 2, color: C.gold, textShadow: glow(C.gold, 8), marginTop: 14, marginBottom: 6 }}>{trimmed.slice(2)}</div>
+      if (trimmed.startsWith('### ')) return <div key={i} style={{ fontFamily: FO, fontWeight: 700, fontSize: 11, letterSpacing: "0.04em", color: C.blue, marginTop: 10, marginBottom: 4 }}>{trimmed.slice(4)}</div>
+      if (trimmed.startsWith('## ')) return <div key={i} style={{ fontFamily: FO, fontWeight: 700, fontSize: 12, letterSpacing: "0.04em", color: C.textBright, marginTop: 12, marginBottom: 4 }}>{trimmed.slice(3)}</div>
+      if (trimmed.startsWith('# ')) return <div key={i} style={{ fontFamily: FM, fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", color: C.gold, marginTop: 14, marginBottom: 6 }}>{trimmed.slice(2)}</div>
       if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) return <div key={i} style={{ fontFamily: FR, fontSize: 13, fontWeight: 500, color: C.text, paddingLeft: 12, lineHeight: 1.6, position: 'relative' }}><span style={{ position: 'absolute', left: 0, color: C.blue }}>•</span>{trimmed.slice(2)}</div>
       if (trimmed.startsWith('**') && trimmed.endsWith('**')) return <div key={i} style={{ fontFamily: FR, fontSize: 13, fontWeight: 600, color: C.textBright, lineHeight: 1.5 }}>{trimmed.slice(2, -2)}</div>
       return <div key={i} style={{ fontFamily: FR, fontSize: 13, fontWeight: 500, color: C.text, lineHeight: 1.6 }}>{trimmed}</div>
@@ -965,8 +929,8 @@ function BriefPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 10 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ fontFamily: FO, fontWeight: 900, fontSize: 14, letterSpacing: 3, color: C.gold, textShadow: glow(C.gold, 8) }}>DAILY BRIEF</div>
-        <button onClick={reload} style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 1, color: C.blue, padding: '5px 12px', border: `1px solid ${C.blue}44`, borderRadius: 4 }}>REFRESH</button>
+        <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 15, letterSpacing: "0.06em", color: C.gold }}>DAILY BRIEF</div>
+        <button onClick={reload} style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: "0.02em", color: C.blue, padding: '5px 12px', border: `1px solid ${C.blue}44`, borderRadius: 4 }}>REFRESH</button>
       </div>
 
       {tier1 && (
@@ -1039,11 +1003,11 @@ function AnalyzePage() {
           onKeyDown={e => e.key === 'Enter' && doSearch()}
           placeholder="TICKER" style={{
             flex: 1, background: C.raised, border: `1px solid ${C.border}`, borderRadius: 6,
-            padding: '10px 14px', fontFamily: FO, fontWeight: 900, fontSize: 16, color: C.textBright, letterSpacing: 2,
+            padding: '10px 14px', fontFamily: FO, fontWeight: 900, fontSize: 16, color: C.textBright, letterSpacing: "0.04em",
           }}
         />
         <button onClick={doSearch} style={{
-          fontFamily: FO, fontWeight: 700, fontSize: 10, letterSpacing: 2,
+          fontFamily: FO, fontWeight: 700, fontSize: 10, letterSpacing: "0.04em",
           color: C.bg, background: C.blue, padding: '10px 20px', borderRadius: 6,
         }}>ANALYZE</button>
       </div>
@@ -1058,7 +1022,7 @@ function AnalyzePage() {
             <div style={{ padding: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                 <div>
-                  <div style={{ fontFamily: FO, fontWeight: 900, fontSize: 24, color: C.textBright }}>{searchTicker}</div>
+                  <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 24, color: C.textBright }}>{searchTicker}</div>
                   <div style={{ fontFamily: FR, fontWeight: 500, fontSize: 12, color: C.textDim }}>{a.name || a.company || a.sector || ''}</div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
@@ -1077,7 +1041,7 @@ function AnalyzePage() {
                   { l: 'WEEK', v: a.week_change ?? a.change_1w, pct: true },
                 ].map(({ l, v, pct }) => (
                   <div key={l} style={{ background: C.raised, borderRadius: 4, padding: 6 }}>
-                    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1.5, color: C.textDim }}>{l}</div>
+                    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: "0.03em", color: C.textDim }}>{l}</div>
                     {pct ? <Pct v={v} size={11} /> : <Mono size={11}>{v != null ? (typeof v === 'number' ? (v > 1e9 ? `$${(v / 1e9).toFixed(1)}B` : v > 1e6 ? `$${(v / 1e6).toFixed(0)}M` : `$${v.toFixed(2)}`) : String(v)) : '—'}</Mono>}
                   </div>
                 ))}
@@ -1097,7 +1061,7 @@ function AnalyzePage() {
                     const detail = item.detail || item.value || item.description || ''
                     return (
                       <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderBottom: `1px solid ${C.border}22` }}>
-                        <span style={{ fontFamily: FM, fontSize: 12, color: pass ? C.green : C.red, textShadow: glow(pass ? C.green : C.red, 4), flexShrink: 0 }}>{pass ? '✓' : '✗'}</span>
+                        <span style={{ fontFamily: FM, fontSize: 12, color: pass ? C.green : C.red, flexShrink: 0 }}>{pass ? '✓' : '✗'}</span>
                         <div style={{ flex: 1 }}>
                           <div style={{ fontFamily: FR, fontSize: 12, fontWeight: 600, color: pass ? C.text : C.textDim }}>{typeof label === 'string' ? label : ''}</div>
                           {detail && <div style={{ fontFamily: FM, fontSize: 10, color: C.textDim }}>{String(detail)}</div>}
@@ -1136,7 +1100,7 @@ function AnalyzePage() {
                     { l: 'VOLUME', v: tech.volume ?? tech.avg_volume },
                   ].filter(x => x.v != null).map(({ l, v }) => (
                     <div key={l} style={{ background: C.raised, borderRadius: 4, padding: 6 }}>
-                      <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1.5, color: C.textDim }}>{l}</div>
+                      <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: "0.03em", color: C.textDim }}>{l}</div>
                       <Mono size={11}>{typeof v === 'number' ? (Math.abs(v) > 1e6 ? `${(v / 1e6).toFixed(1)}M` : v.toFixed(2)) : String(v)}</Mono>
                     </div>
                   ))}
@@ -1151,7 +1115,7 @@ function AnalyzePage() {
               <div style={{ padding: 12 }}>
                 <div style={{ display: 'flex', gap: 20 }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.green, marginBottom: 6 }}>SUPPORT LEVELS</div>
+                    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: "0.04em", color: C.green, marginBottom: 6 }}>SUPPORT LEVELS</div>
                     {(sr.support || sr.supports || []).map((v, i) => (
                       <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderBottom: `1px solid ${C.border}22` }}>
                         <Mono size={11} color={C.green}>S{i + 1}</Mono>
@@ -1161,7 +1125,7 @@ function AnalyzePage() {
                     {(sr.support || sr.supports || []).length === 0 && <Mono size={10} color={C.textDim}>None identified</Mono>}
                   </div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.red, marginBottom: 6 }}>RESISTANCE LEVELS</div>
+                    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: "0.04em", color: C.red, marginBottom: 6 }}>RESISTANCE LEVELS</div>
                     {(sr.resistance || sr.resistances || []).map((v, i) => (
                       <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderBottom: `1px solid ${C.border}22` }}>
                         <Mono size={11} color={C.red}>R{i + 1}</Mono>
@@ -1193,7 +1157,7 @@ function AnalyzePage() {
                     { l: 'INDUSTRY', v: fund.industry ?? a.industry },
                   ].filter(x => x.v != null).map(({ l, v }) => (
                     <div key={l} style={{ background: C.raised, borderRadius: 4, padding: 6 }}>
-                      <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1.5, color: C.textDim }}>{l}</div>
+                      <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: "0.03em", color: C.textDim }}>{l}</div>
                       <Mono size={11}>{typeof v === 'number' ? (Math.abs(v) < 5 ? (v * 100).toFixed(1) + '%' : v.toFixed(2)) : String(v)}</Mono>
                     </div>
                   ))}
@@ -1216,7 +1180,7 @@ function AnalyzePage() {
                     { l: 'PUT/CALL', v: opt.put_call_ratio },
                   ].filter(x => x.v != null).map(({ l, v, color }) => (
                     <div key={l} style={{ background: C.raised, borderRadius: 4, padding: 6 }}>
-                      <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1.5, color: C.textDim }}>{l}</div>
+                      <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: "0.03em", color: C.textDim }}>{l}</div>
                       <Mono size={12} color={color}>{typeof v === 'number' ? (v < 5 ? (v * 100).toFixed(1) + '%' : v.toFixed(2)) : String(v)}</Mono>
                     </div>
                   ))}
@@ -1224,7 +1188,7 @@ function AnalyzePage() {
                 {/* Term Structure */}
                 {opt.term_structure && (
                   <div style={{ marginBottom: 10 }}>
-                    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim, marginBottom: 4 }}>TERM STRUCTURE</div>
+                    <div style={{ fontFamily: FO, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", color: C.textDim, marginBottom: 4 }}>TERM STRUCTURE</div>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                       {(Array.isArray(opt.term_structure) ? opt.term_structure : Object.entries(opt.term_structure).map(([k, v]) => ({ expiry: k, iv: v }))).map((t, i) => (
                         <div key={i} style={{ background: C.raised, borderRadius: 4, padding: '4px 8px' }}>
@@ -1236,11 +1200,11 @@ function AnalyzePage() {
                   </div>
                 )}
                 {/* Skew */}
-                {opt.skew && <div style={{ marginBottom: 10 }}><div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim, marginBottom: 4 }}>SKEW</div><Mono size={11}>{typeof opt.skew === 'number' ? opt.skew.toFixed(3) : JSON.stringify(opt.skew)}</Mono></div>}
+                {opt.skew && <div style={{ marginBottom: 10 }}><div style={{ fontFamily: FO, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", color: C.textDim, marginBottom: 4 }}>SKEW</div><Mono size={11}>{typeof opt.skew === 'number' ? opt.skew.toFixed(3) : JSON.stringify(opt.skew)}</Mono></div>}
                 {/* Strategy Recs */}
                 {(opt.strategies || opt.recommendations || opt.strategy_recs) && (
                   <div>
-                    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim, marginBottom: 4 }}>STRATEGY RECOMMENDATIONS</div>
+                    <div style={{ fontFamily: FO, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", color: C.textDim, marginBottom: 4 }}>STRATEGY RECOMMENDATIONS</div>
                     {(opt.strategies || opt.recommendations || opt.strategy_recs || []).map((s, i) => (
                       <div key={i} style={{ background: C.raised, borderRadius: 6, padding: 8, marginBottom: 4 }}>
                         <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 10, color: C.blue }}>{s.name || s.strategy || s.type || 'Strategy'}</div>
@@ -1272,7 +1236,7 @@ function AnalyzePage() {
                 )}
                 {!trades.tradeable && trades.noTradeReason && (
                   <div style={{ padding: 10, background: `${C.red}11`, border: `1px solid ${C.red}33`, borderRadius: 6 }}>
-                    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.red, marginBottom: 4 }}>NO TRADE</div>
+                    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: "0.04em", color: C.red, marginBottom: 4 }}>NO TRADE</div>
                     <div style={{ fontFamily: FR, fontSize: 12, color: C.text }}>{trades.noTradeReason}</div>
                   </div>
                 )}
@@ -1286,7 +1250,7 @@ function AnalyzePage() {
                       { l: 'SPOT', v: trades.spot, c: C.textBright },
                     ].filter(x => x.v).map(({ l, v, c }) => (
                       <div key={l} style={{ background: C.raised, borderRadius: 4, padding: 6, textAlign: 'center' }}>
-                        <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1.5, color: C.textDim }}>{l}</div>
+                        <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: "0.03em", color: C.textDim }}>{l}</div>
                         <Mono size={12} color={c}>${Number(v).toFixed(2)}</Mono>
                       </div>
                     ))}
@@ -1300,11 +1264,11 @@ function AnalyzePage() {
                   return (
                     <Collapsible key={i} title={strat.strategyName || strat.strategy || strat.name || `Strategy ${i + 1}`}
                       borderColor={aggColor} defaultOpen={i === 0}
-                      right={sg ? <span style={{ fontFamily: FO, fontWeight: 900, fontSize: 14, color: gradeColor(sg), textShadow: gradeGlow(sg) }}>{sg}</span> : null}>
+                      right={sg ? <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 15, color: gradeColor(sg) }}>{sg}</span> : null}>
                       <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
                         {/* Aggression badge + score */}
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                          <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.bg, background: aggColor, padding: '2px 10px', borderRadius: 3 }}>{aggLabel}</span>
+                          <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: "0.04em", color: C.bg, background: aggColor, padding: '2px 10px', borderRadius: 3 }}>{aggLabel}</span>
                           {strat.gradeScore != null && <Mono size={10} color={C.textDim}>Score: {strat.gradeScore}/100</Mono>}
                           {strat.positionPct && <Mono size={10} color={C.textDim}>Size: {strat.positionPct}</Mono>}
                         </div>
@@ -1326,7 +1290,7 @@ function AnalyzePage() {
                             { l: 'B/E %', v: strat.breakevenPct != null ? `${strat.breakevenPct}%` : null },
                           ].filter(x => x.v != null).map(({ l, v }) => (
                             <div key={l} style={{ background: C.bg, borderRadius: 4, padding: '4px 6px' }}>
-                              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1, color: C.textDim }}>{l}</div>
+                              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: "0.02em", color: C.textDim }}>{l}</div>
                               <Mono size={10}>{v}</Mono>
                             </div>
                           ))}
@@ -1341,12 +1305,12 @@ function AnalyzePage() {
                               { l: 'Vega', v: strat.greeks.vega, c: C.purple },
                             ].filter(x => x.v != null && x.v !== 0).map(({ l, v, c }) => (
                               <div key={l}>
-                                <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1, color: C.textDim }}>{l} </span>
+                                <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: "0.02em", color: C.textDim }}>{l} </span>
                                 <Mono size={10} color={c}>{typeof v === 'number' ? v.toFixed(4) : v}</Mono>
                               </div>
                             ))}
                             {strat.thetaPerDay != null && strat.thetaPerDay !== 0 && (
-                              <div><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1, color: C.textDim }}>Theta/Day </span><Mono size={10} color={C.red}>${Math.abs(strat.thetaPerDay).toFixed(2)}</Mono></div>
+                              <div><span style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: "0.02em", color: C.textDim }}>Theta/Day </span><Mono size={10} color={C.red}>${Math.abs(strat.thetaPerDay).toFixed(2)}</Mono></div>
                             )}
                           </div>
                         )}
@@ -1354,25 +1318,25 @@ function AnalyzePage() {
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6 }}>
                           {strat.entryZone && (
                             <div style={{ background: `${C.blue}11`, border: `1px solid ${C.blue}22`, borderRadius: 4, padding: 6 }}>
-                              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1.5, color: C.blue }}>ENTRY ZONE</div>
+                              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: "0.03em", color: C.blue }}>ENTRY ZONE</div>
                               <Mono size={11} color={C.blue}>{strat.entryZone}</Mono>
                             </div>
                           )}
                           {strat.stopPrice && (
                             <div style={{ background: `${C.red}11`, border: `1px solid ${C.red}22`, borderRadius: 4, padding: 6 }}>
-                              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1.5, color: C.red }}>STOP LOSS</div>
+                              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: "0.03em", color: C.red }}>STOP LOSS</div>
                               <Mono size={11} color={C.red}>${Number(strat.stopPrice).toFixed(2)}</Mono>
                             </div>
                           )}
                           {strat.target1 && (
                             <div style={{ background: `${C.green}11`, border: `1px solid ${C.green}22`, borderRadius: 4, padding: 6 }}>
-                              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1.5, color: C.green }}>TARGET 1</div>
+                              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: "0.03em", color: C.green }}>TARGET 1</div>
                               <Mono size={11} color={C.green}>${Number(strat.target1).toFixed(2)}</Mono>
                             </div>
                           )}
                           {strat.target2 && (
                             <div style={{ background: `${C.green}11`, border: `1px solid ${C.green}22`, borderRadius: 4, padding: 6 }}>
-                              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1.5, color: C.green }}>TARGET 2</div>
+                              <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: "0.03em", color: C.green }}>TARGET 2</div>
                               <Mono size={11} color={C.green}>${Number(strat.target2).toFixed(2)}</Mono>
                             </div>
                           )}
@@ -1395,7 +1359,7 @@ function AnalyzePage() {
                         {/* P&L Targets projection */}
                         {strat.targets && strat.targets.length > 0 && (
                           <div>
-                            <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1.5, color: C.textDim, marginBottom: 4 }}>P&L PROJECTION</div>
+                            <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: "0.03em", color: C.textDim, marginBottom: 4 }}>P&L PROJECTION</div>
                             {strat.targets.map((t, j) => (
                               <div key={j} style={{ display: 'flex', gap: 12, padding: '3px 0', borderBottom: `1px solid ${C.border}22` }}>
                                 <Mono size={10} color={C.textDim}>Stock @ ${Number(t.stockPrice).toFixed(2)}</Mono>
@@ -1408,7 +1372,7 @@ function AnalyzePage() {
                         {/* Entry Triggers */}
                         {strat.entryTriggers && strat.entryTriggers.length > 0 && (
                           <div>
-                            <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1.5, color: C.blue, marginBottom: 4 }}>ENTRY TRIGGERS</div>
+                            <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: "0.03em", color: C.blue, marginBottom: 4 }}>ENTRY TRIGGERS</div>
                             {strat.entryTriggers.map((t, j) => (
                               <div key={j} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', padding: '2px 0' }}>
                                 <span style={{ fontFamily: FM, fontSize: 10, color: C.blue, flexShrink: 0 }}>&#9654;</span>
@@ -1420,7 +1384,7 @@ function AnalyzePage() {
                         {/* Things to Watch */}
                         {strat.thingsToWatch && strat.thingsToWatch.length > 0 && (
                           <div>
-                            <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1.5, color: C.gold, marginBottom: 4 }}>THINGS TO WATCH</div>
+                            <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: "0.03em", color: C.gold, marginBottom: 4 }}>THINGS TO WATCH</div>
                             {strat.thingsToWatch.map((t, j) => (
                               <div key={j} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', padding: '2px 0' }}>
                                 <span style={{ fontFamily: FM, fontSize: 10, color: C.gold, flexShrink: 0 }}>&#9888;</span>
@@ -1451,7 +1415,7 @@ function AnalyzePage() {
               <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {qullData.dual_convergence && (
                   <div style={{ padding: 10, background: `${C.gold}15`, border: `1px solid ${C.gold}44`, borderRadius: 6 }}>
-                    <div style={{ fontFamily: FO, fontWeight: 900, fontSize: 11, letterSpacing: 2, color: C.gold, textShadow: glow(C.gold, 12) }}>DUAL CONVERGENCE — MAXIMUM CONVICTION</div>
+                    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 12, letterSpacing: "0.04em", color: C.gold }}>DUAL CONVERGENCE — MAXIMUM CONVICTION</div>
                     <div style={{ fontFamily: FR, fontSize: 12, color: C.text, marginTop: 4 }}>MKW convergence + Qullamaggie breakout both triggered. Full position size.</div>
                   </div>
                 )}
@@ -1461,10 +1425,10 @@ function AnalyzePage() {
                   return (
                     <div key={i} style={{ background: C.raised, borderRadius: 6, padding: 10, border: `1px solid ${typeColor}33` }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                        <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 10, letterSpacing: 2, color: typeColor }}>{s.type?.replace('_', ' ')}</span>
+                        <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 10, letterSpacing: "0.04em", color: typeColor }}>{s.type?.replace('_', ' ')}</span>
                         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                           <Mono size={10} color={typeColor}>{s.score}/100</Mono>
-                          {s.triggering && <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1, color: C.bg, background: C.gold, padding: '1px 6px', borderRadius: 3 }}>TRIGGERING</span>}
+                          {s.triggering && <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: "0.02em", color: C.bg, background: C.gold, padding: '1px 6px', borderRadius: 3 }}>TRIGGERING</span>}
                         </div>
                       </div>
                       <div style={{ fontFamily: FR, fontSize: 12, color: C.text, lineHeight: 1.5 }}>{s.detail}</div>
@@ -1488,20 +1452,20 @@ function AnalyzePage() {
                 {/* Trade Plans */}
                 {(qullData.trade_plans || []).map((plan, i) => (
                   <div key={i} style={{ background: C.bg, borderRadius: 6, padding: 10, border: `1px solid ${C.border}` }}>
-                    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.gold, marginBottom: 6 }}>
+                    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: "0.04em", color: C.gold, marginBottom: 6 }}>
                       {plan.setup_type?.replace('_', ' ')} TRADE PLAN
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 8 }}>
                       <div style={{ background: C.raised, borderRadius: 4, padding: 6 }}>
-                        <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1.5, color: C.textDim }}>ENTRY</div>
+                        <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: "0.03em", color: C.textDim }}>ENTRY</div>
                         <Mono size={11} color={C.green}>${plan.entry_price}</Mono>
                       </div>
                       <div style={{ background: C.raised, borderRadius: 4, padding: 6 }}>
-                        <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1.5, color: C.textDim }}>STOP</div>
+                        <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: "0.03em", color: C.textDim }}>STOP</div>
                         <Mono size={11} color={C.red}>${plan.initial_stop}</Mono>
                       </div>
                       <div style={{ background: C.raised, borderRadius: 4, padding: 6 }}>
-                        <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1.5, color: C.textDim }}>RISK/SHARE</div>
+                        <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: "0.03em", color: C.textDim }}>RISK/SHARE</div>
                         <Mono size={11}>${plan.risk_per_share}</Mono>
                       </div>
                     </div>
@@ -1524,7 +1488,7 @@ function AnalyzePage() {
                 {/* Qullamaggie Indicators Snapshot */}
                 {qullData.indicators && Object.keys(qullData.indicators).length > 0 && (
                   <div style={{ marginTop: 4 }}>
-                    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim, marginBottom: 4 }}>MOMENTUM INDICATORS</div>
+                    <div style={{ fontFamily: FO, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", color: C.textDim, marginBottom: 4 }}>MOMENTUM INDICATORS</div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4 }}>
                       {[
                         { l: 'ADR 5D', v: qullData.indicators.adr_5d },
@@ -1537,7 +1501,7 @@ function AnalyzePage() {
                         { l: 'MOVE 63D', v: qullData.indicators.move_63d_pct },
                       ].filter(x => x.v != null).map(({ l, v }) => (
                         <div key={l} style={{ background: C.raised, borderRadius: 3, padding: 4, textAlign: 'center' }}>
-                          <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 6, letterSpacing: 1, color: C.textDim }}>{l}</div>
+                          <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 6, letterSpacing: "0.02em", color: C.textDim }}>{l}</div>
                           <Mono size={9}>{typeof v === 'number' ? v.toFixed(1) : v}</Mono>
                         </div>
                       ))}
@@ -1614,8 +1578,8 @@ function MomentumPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 10 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ fontFamily: FO, fontWeight: 900, fontSize: 14, color: C.gold, letterSpacing: 2, textShadow: glow(C.gold, 8) }}>MOMENTUM</div>
-        <button onClick={doScan} style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.blue, padding: '6px 12px', border: `1px solid ${C.blue}44`, borderRadius: 4 }}>RESCAN</button>
+        <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 15, color: C.gold, letterSpacing: 2 }}>MOMENTUM</div>
+        <button onClick={doScan} style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: "0.04em", color: C.blue, padding: '6px 12px', border: `1px solid ${C.blue}44`, borderRadius: 4 }}>RESCAN</button>
       </div>
       <div style={{ fontFamily: FR, fontSize: 11, color: C.textDim, marginTop: -6 }}>Qullamaggie Breakouts · Parabolic · Episodic Pivots</div>
 
@@ -1633,8 +1597,8 @@ function MomentumPage() {
               { l: 'EP', v: (scanData.episodic_pivots || []).length, c: C.gold },
             ].map(({ l, v, c }) => (
               <div key={l} style={{ background: C.panel, borderRadius: 6, padding: 8, textAlign: 'center', border: `1px solid ${v > 0 ? c + '44' : C.border}` }}>
-                <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1.5, color: C.textDim }}>{l}</div>
-                <div style={{ fontFamily: FO, fontWeight: 900, fontSize: 20, color: v > 0 ? c : C.textDim, textShadow: v > 0 ? glow(c, 8) : 'none' }}>{v}</div>
+                <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: "0.03em", color: C.textDim }}>{l}</div>
+                <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 20, color: v > 0 ? c : C.textDim }}>{v}</div>
               </div>
             ))}
           </div>
@@ -1660,13 +1624,13 @@ function MomentumPage() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ fontFamily: FO, fontWeight: 900, fontSize: 16, color: C.textBright }}>{ticker}</span>
-                      <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1.5, color: typeColor, padding: '1px 6px', border: `1px solid ${typeColor}44`, borderRadius: 3, background: `${typeColor}11` }}>
+                      <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: "0.03em", color: typeColor, padding: '1px 6px', border: `1px solid ${typeColor}44`, borderRadius: 3, background: `${typeColor}11` }}>
                         {setupType.replace('_', ' ')}
                       </span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <Mono size={12} color={typeColor}>{score}/100</Mono>
-                      {triggering && <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1, color: C.bg, background: C.gold, padding: '2px 8px', borderRadius: 3, textShadow: 'none' }}>TRIGGERING</span>}
+                      {triggering && <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: "0.02em", color: C.bg, background: C.gold, padding: '2px 8px', borderRadius: 3 }}>TRIGGERING</span>}
                     </div>
                   </div>
                   <div style={{ fontFamily: FR, fontSize: 12, color: C.text, lineHeight: 1.5 }}>{item.detail || ''}</div>
@@ -1724,7 +1688,7 @@ function ScreenerPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 10 }}>
-      <div style={{ fontFamily: FO, fontWeight: 900, fontSize: 14, letterSpacing: 3, color: C.textBright }}>SCREENER</div>
+      <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 15, letterSpacing: "0.06em", color: C.textBright }}>SCREENER</div>
 
       {/* Preset buttons */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -1735,7 +1699,7 @@ function ScreenerPage() {
           const isActive = activePreset === key
           return (
             <button key={key} onClick={() => runPreset(p)} style={{
-              fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 1.5,
+              fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: "0.03em",
               color: isActive ? C.bg : C.blue, background: isActive ? C.blue : 'transparent',
               padding: '6px 12px', borderRadius: 4, border: `1px solid ${C.blue}44`,
               transition: 'all 0.2s',
@@ -1756,7 +1720,7 @@ function ScreenerPage() {
               {/* Header row */}
               <div style={{ display: 'grid', gridTemplateColumns: '70px 50px 60px 50px 50px 60px', gap: 4, padding: '8px 12px', borderBottom: `1px solid ${C.border}` }}>
                 {['TICKER', 'GRADE', 'SCORE', 'RS', 'STAGE', 'PHASE'].map(h => (
-                  <div key={h} style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1.5, color: C.textDim }}>{h}</div>
+                  <div key={h} style={{ fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: "0.03em", color: C.textDim }}>{h}</div>
                 ))}
               </div>
               {/* Rows */}
@@ -1805,7 +1769,7 @@ function NewsPage() {
           const isRisk = n.isRisk || n.risk || n.is_risk || (n.sentiment || '').toLowerCase().includes('negative') || (n.category || '').toLowerCase().includes('risk')
           return (
             <div key={i} style={{ background: C.panel, borderRadius: 6, padding: 10, borderLeft: `3px solid ${isRisk ? C.red : C.border}` }}>
-              {n.ticker && <span style={{ fontFamily: FO, fontWeight: 900, fontSize: 10, color: C.blue, letterSpacing: 1, marginBottom: 2, display: 'inline-block' }}>{n.ticker}</span>}
+              {n.ticker && <span style={{ fontFamily: FO, fontWeight: 900, fontSize: 10, color: C.blue, letterSpacing: "0.02em", marginBottom: 2, display: 'inline-block' }}>{n.ticker}</span>}
               <div style={{ fontFamily: FR, fontSize: 13, fontWeight: 600, color: isRisk ? C.red : C.textBright, lineHeight: 1.4 }}>{n.title || n.headline}</div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
                 <Mono size={10} color={C.textDim}>{n.source || n.provider || ''}</Mono>
@@ -1822,7 +1786,7 @@ function NewsPage() {
           return (
             <div key={i} style={{ background: C.panel, borderRadius: 6, padding: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderLeft: `3px solid ${C.gold}` }}>
               <div>
-                <span style={{ fontFamily: FO, fontWeight: 900, fontSize: 14, color: C.textBright }}>{e.ticker || e.symbol}</span>
+                <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 15, color: C.textBright }}>{e.ticker || e.symbol}</span>
                 <span style={{ fontFamily: FR, fontSize: 11, color: C.textDim, marginLeft: 8 }}>{e.date || e.earnings_date || ''}</span>
                 {e.time_of_day && <span style={{ fontFamily: FM, fontSize: 10, color: C.textDim, marginLeft: 6 }}>{e.time_of_day}</span>}
               </div>
@@ -1864,14 +1828,14 @@ function BreadthPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 10 }}>
-      <div style={{ fontFamily: FO, fontWeight: 900, fontSize: 14, letterSpacing: 3, color: C.textBright }}>MARKET BREADTH</div>
+      <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 15, letterSpacing: "0.06em", color: C.textBright }}>MARKET BREADTH</div>
 
       {/* Index Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
         {indices.map(({ label, data: d }) => (
           <Panel key={label}>
             <div style={{ padding: 10, textAlign: 'center' }}>
-              <div style={{ fontFamily: FO, fontWeight: 900, fontSize: 14, color: C.textBright, marginBottom: 4 }}>{label}</div>
+              <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 15, color: C.textBright, marginBottom: 4 }}>{label}</div>
               <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 10, color: C.blue, marginBottom: 2 }}>Stage {d.stageLabel || d.weinstein_stage || d.stage || '—'}</div>
               <Pct v={d.chg ?? d.change ?? d.day_change ?? d.change_pct} size={12} />
               <div style={{ marginTop: 4 }}><Mono size={10} color={C.textDim}>{d.price ? `$${Number(d.price).toFixed(2)}` : ''}</Mono></div>
@@ -1883,8 +1847,8 @@ function BreadthPage() {
       {/* VIX */}
       <Panel borderColor={Number(vixVal) > 25 ? C.red : C.border}>
         <div style={{ padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 12, letterSpacing: 2, color: C.textDim }}>VIX</div>
-          <div style={{ fontFamily: FO, fontWeight: 900, fontSize: 24, color: Number(vixVal) > 25 ? C.red : Number(vixVal) > 18 ? C.gold : C.green, textShadow: glow(Number(vixVal) > 25 ? C.red : Number(vixVal) > 18 ? C.gold : C.green, 12) }}>
+          <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 12, letterSpacing: "0.04em", color: C.textDim }}>VIX</div>
+          <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 24, color: Number(vixVal) > 25 ? C.red : Number(vixVal) > 18 ? C.gold : C.green }}>
             {typeof vixVal === 'number' ? vixVal.toFixed(2) : vixVal}
           </div>
         </div>
@@ -1901,8 +1865,8 @@ function BreadthPage() {
       {/* Template Count */}
       <Panel>
         <div style={{ padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 11, letterSpacing: 2, color: C.textDim }}>TEMPLATE QUALIFIERS</div>
-          <div style={{ fontFamily: FO, fontWeight: 900, fontSize: 20, color: C.purple, textShadow: glow(C.purple, 10) }}>{templateCount}</div>
+          <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 11, letterSpacing: "0.04em", color: C.textDim }}>TEMPLATE QUALIFIERS</div>
+          <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 20, color: C.purple }}>{templateCount}</div>
         </div>
       </Panel>
 
@@ -1913,7 +1877,7 @@ function BreadthPage() {
           <div style={{ padding: 12, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
             {Object.entries(advDecl).map(([k, v]) => (
               <div key={k} style={{ background: C.raised, borderRadius: 4, padding: 6, textAlign: 'center' }}>
-                <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1, color: C.textDim, textTransform: 'uppercase' }}>{k.replace(/_/g, ' ')}</div>
+                <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: "0.02em", color: C.textDim, textTransform: 'uppercase' }}>{k.replace(/_/g, ' ')}</div>
                 <Mono size={12}>{v}</Mono>
               </div>
             ))}
@@ -1966,10 +1930,10 @@ function JournalPage() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 10 }}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ fontFamily: FO, fontWeight: 900, fontSize: 14, letterSpacing: 3, color: C.textBright }}>TRADE JOURNAL</div>
+        <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 15, letterSpacing: "0.06em", color: C.textBright }}>TRADE JOURNAL</div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => setShowAnalytics(!showAnalytics)} style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 1, color: C.purple, padding: '5px 10px', border: `1px solid ${C.purple}44`, borderRadius: 4 }}>STATS</button>
-          <button onClick={() => setShowForm(!showForm)} style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 1, color: C.green, padding: '5px 10px', border: `1px solid ${C.green}44`, borderRadius: 4 }}>{showForm ? 'CANCEL' : '+ ADD'}</button>
+          <button onClick={() => setShowAnalytics(!showAnalytics)} style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: "0.02em", color: C.purple, padding: '5px 10px', border: `1px solid ${C.purple}44`, borderRadius: 4 }}>STATS</button>
+          <button onClick={() => setShowForm(!showForm)} style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: "0.02em", color: C.green, padding: '5px 10px', border: `1px solid ${C.green}44`, borderRadius: 4 }}>{showForm ? 'CANCEL' : '+ ADD'}</button>
         </div>
       </div>
 
@@ -2002,7 +1966,7 @@ function JournalPage() {
               <input placeholder="R-Multiple" value={form.rMultiple} onChange={e => setForm({ ...form, rMultiple: e.target.value })} style={inputStyle} type="number" step="0.1" />
             </div>
             <textarea placeholder="Notes..." value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} style={{ ...inputStyle, height: 60, resize: 'none', fontFamily: FR }} />
-            <button onClick={handleAdd} style={{ fontFamily: FO, fontWeight: 700, fontSize: 11, letterSpacing: 2, color: C.bg, background: C.green, padding: '10px 0', borderRadius: 4, width: '100%' }}>LOG TRADE</button>
+            <button onClick={handleAdd} style={{ fontFamily: FO, fontWeight: 700, fontSize: 11, letterSpacing: "0.04em", color: C.bg, background: C.green, padding: '10px 0', borderRadius: 4, width: '100%' }}>LOG TRADE</button>
           </div>
         </Panel>
       )}
@@ -2023,7 +1987,7 @@ function JournalPage() {
                   { l: 'PROFIT F', v: stats.profit_factor, fmt: v => typeof v === 'number' ? v.toFixed(2) + 'x' : v, color: C.gold },
                 ].map(({ l, v, fmt, color }) => (
                   <div key={l} style={{ background: C.raised, borderRadius: 4, padding: 6, textAlign: 'center' }}>
-                    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: 1.5, color: C.textDim }}>{l}</div>
+                    <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 7, letterSpacing: "0.03em", color: C.textDim }}>{l}</div>
                     <Mono size={12} color={color}>{v != null ? fmt(v) : '—'}</Mono>
                   </div>
                 ))}
@@ -2032,7 +1996,7 @@ function JournalPage() {
               {/* Win Rate by Grade */}
               {Object.keys(winRateByGrade).length > 0 && (
                 <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim, marginBottom: 4 }}>WIN RATE BY GRADE</div>
+                  <div style={{ fontFamily: FO, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", color: C.textDim, marginBottom: 4 }}>WIN RATE BY GRADE</div>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     {Object.entries(winRateByGrade).map(([grade, rate]) => (
                       <div key={grade} style={{ background: C.raised, borderRadius: 4, padding: '4px 8px', textAlign: 'center' }}>
@@ -2047,7 +2011,7 @@ function JournalPage() {
               {/* Win Rate by Zone */}
               {Object.keys(winRateByZone).length > 0 && (
                 <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim, marginBottom: 4 }}>WIN RATE BY ZONE</div>
+                  <div style={{ fontFamily: FO, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", color: C.textDim, marginBottom: 4 }}>WIN RATE BY ZONE</div>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     {Object.entries(winRateByZone).map(([zone, rate]) => (
                       <div key={zone} style={{ background: C.raised, borderRadius: 4, padding: '4px 8px', textAlign: 'center' }}>
@@ -2062,7 +2026,7 @@ function JournalPage() {
               {/* Win Rate by Phase */}
               {Object.keys(winRateByPhase).length > 0 && (
                 <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim, marginBottom: 4 }}>WIN RATE BY PHASE</div>
+                  <div style={{ fontFamily: FO, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", color: C.textDim, marginBottom: 4 }}>WIN RATE BY PHASE</div>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     {Object.entries(winRateByPhase).map(([phase, rate]) => (
                       <div key={phase} style={{ background: C.raised, borderRadius: 4, padding: '4px 8px', textAlign: 'center' }}>
@@ -2077,7 +2041,7 @@ function JournalPage() {
               {/* Monthly P&L */}
               {Object.keys(monthlyPnl).length > 0 && (
                 <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.textDim, marginBottom: 4 }}>MONTHLY P&L</div>
+                  <div style={{ fontFamily: FO, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", color: C.textDim, marginBottom: 4 }}>MONTHLY P&L</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4 }}>
                     {Object.entries(monthlyPnl).map(([month, pnl]) => {
                       const n = Number(pnl) || 0
@@ -2095,7 +2059,7 @@ function JournalPage() {
               {/* Insights */}
               {(Array.isArray(insights) ? insights : []).length > 0 && (
                 <div>
-                  <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: C.gold, marginBottom: 4 }}>AUTO-GENERATED INSIGHTS</div>
+                  <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, letterSpacing: "0.04em", color: C.gold, marginBottom: 4 }}>AUTO-GENERATED INSIGHTS</div>
                   {insights.map((ins, i) => (
                     <div key={i} style={{ fontFamily: FR, fontSize: 12, fontWeight: 500, color: C.text, padding: '3px 0', lineHeight: 1.5 }}>
                       <span style={{ color: C.gold, marginRight: 4 }}>*</span>
@@ -2122,7 +2086,7 @@ function JournalPage() {
             <div style={{ padding: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontFamily: FO, fontWeight: 900, fontSize: 14, color: C.textBright }}>{t.ticker || t.symbol}</span>
+                  <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 15, color: C.textBright }}>{t.ticker || t.symbol}</span>
                   <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 9, color: isLong ? C.green : C.red }}>{t.direction || 'LONG'}</span>
                   {t.grade && <GradeBadge grade={t.grade} size={10} />}
                 </div>
@@ -2328,9 +2292,9 @@ function MarketWizard({ currentPage, pageData, onNavigate }) {
       <button onClick={() => setIsOpen(true)} style={{
         position: 'fixed', bottom: 76, right: 16, zIndex: 1000,
         width: 52, height: 52, borderRadius: '50%',
-        background: `linear-gradient(135deg, ${C.panel}, ${C.raised})`,
+        background: C.panel,
         border: `2px solid ${C.blue}44`,
-        boxShadow: `0 0 20px ${C.blue}33, 0 4px 12px rgba(0,0,0,0.4)`,
+        boxShadow: shadows.lg,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         cursor: 'pointer', transition: 'all 0.3s',
       }}>
@@ -2343,7 +2307,7 @@ function MarketWizard({ currentPage, pageData, onNavigate }) {
   return (
     <div style={{
       position: 'fixed', bottom: 0, left: 0, right: 0, top: 0, zIndex: 1001,
-      background: 'rgba(2,4,8,0.97)', backdropFilter: 'blur(12px)',
+      background: colors.bg.root,
       display: 'flex', flexDirection: 'column',
       animation: 'fadeIn 0.2s ease',
     }}>
@@ -2355,13 +2319,13 @@ function MarketWizard({ currentPage, pageData, onNavigate }) {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 18 }}>✨</span>
-          <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 12, letterSpacing: 2, color: C.gold }}>MARKET WIZARD</span>
+          <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 12, letterSpacing: "0.04em", color: C.gold }}>MARKET WIZARD</span>
           {provider && <span style={{ fontFamily: FM, fontSize: 9, color: C.textDim }}>via {provider}</span>}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           {messages.length > 0 && (
             <button onClick={clearChat} style={{
-              fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1.5,
+              fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: "0.03em",
               color: C.textDim, padding: '4px 10px', border: `1px solid ${C.border}`, borderRadius: 4,
             }}>NEW</button>
           )}
@@ -2380,7 +2344,7 @@ function MarketWizard({ currentPage, pageData, onNavigate }) {
         {messages.length === 0 && (
           <div style={{ padding: 16, textAlign: 'center' }}>
             <div style={{ fontSize: 36, marginBottom: 12 }}>✨</div>
-            <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 14, letterSpacing: 2, color: C.gold, marginBottom: 8 }}>MARKET WIZARD</div>
+            <div style={{ fontFamily: FO, fontWeight: 700, fontSize: 14, letterSpacing: "0.04em", color: C.gold, marginBottom: 8 }}>MARKET WIZARD</div>
             <div style={{ fontFamily: FR, fontSize: 13, color: C.text, lineHeight: 1.6 }}>
               I'm your MKW trading strategist. Ask me anything about the markets, analyze a ticker, or learn about the convergence framework.
             </div>
@@ -2500,10 +2464,10 @@ class ErrorBoundary extends Component {
   static getDerivedStateFromError(error) { return { error } }
   render() {
     if (this.state.error) return (
-      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#020408', color: '#ff2a44', padding: 30, textAlign: 'center', fontFamily: "'Rajdhani', sans-serif" }}>
-        <div style={{ fontFamily: "'Orbitron', monospace", fontWeight: 900, fontSize: 18, letterSpacing: 3, marginBottom: 12 }}>SYSTEM ERROR</div>
-        <div style={{ fontSize: 13, color: 'rgba(180,200,230,0.7)', marginBottom: 16, maxWidth: 320 }}>{String(this.state.error?.message || this.state.error)}</div>
-        <button onClick={() => { this.setState({ error: null }); window.location.reload() }} style={{ fontFamily: "'Orbitron', monospace", fontWeight: 700, fontSize: 11, letterSpacing: 2, color: '#00ccff', background: 'rgba(0,204,255,0.1)', border: '1px solid rgba(0,204,255,0.3)', borderRadius: 6, padding: '10px 24px', cursor: 'pointer' }}>RELOAD</button>
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: colors.bg.root, color: colors.signal.loss, padding: 30, textAlign: 'center', fontFamily: fonts.body }}>
+        <div style={{ fontFamily: fonts.heading, fontWeight: 700, fontSize: 18, marginBottom: 12 }}>SYSTEM ERROR</div>
+        <div style={{ fontSize: 13, color: colors.text.secondary, marginBottom: 16, maxWidth: 320 }}>{String(this.state.error?.message || this.state.error)}</div>
+        <button onClick={() => { this.setState({ error: null }); window.location.reload() }} style={{ fontFamily: fonts.body, fontWeight: 600, fontSize: 13, color: colors.accent.primary, background: colors.accent.primaryMuted, border: `1px solid ${colors.accent.primary}40`, borderRadius: radius.sm, padding: '10px 24px', cursor: 'pointer', textTransform: 'uppercase' }}>RELOAD</button>
       </div>
     )
     return this.props.children
@@ -2543,16 +2507,15 @@ function AppInner() {
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: C.bg, color: C.text, fontFamily: FR }}>
       <style>{GLOBAL_CSS}</style>
-      <Scanline />
 
       {/* Top Bar */}
       <div style={{
-        height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center',
         background: C.panel, borderBottom: `1px solid ${C.border}`, flexShrink: 0,
         position: 'relative',
       }}>
-        <span style={{ fontFamily: FO, fontWeight: 900, fontSize: 13, letterSpacing: 4, color: C.gold, textShadow: glow(C.gold, 8) }}>MKW</span>
-        <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 10, letterSpacing: 2, color: C.textDim, marginLeft: 8 }}>{page.toUpperCase()}</span>
+        <span style={{ fontFamily: FO, fontWeight: 700, fontSize: 18, color: C.textBright }}>MKW</span>
+        <span style={{ fontFamily: FO, fontWeight: 500, fontSize: 13, color: C.textDim, marginLeft: 10 }}>{page.toUpperCase()}</span>
       </div>
 
       {/* Data Status Bar */}
@@ -2573,10 +2536,10 @@ function AppInner() {
           {MORE_ITEMS.map(item => (
             <button key={item.key} onClick={() => navigate(item.key)} style={{
               display: 'block', width: '100%', textAlign: 'left',
-              fontFamily: FO, fontWeight: 700, fontSize: 11, letterSpacing: 2,
-              color: page === item.key ? C.blue : C.textBright,
+              fontFamily: FO, fontWeight: 600, fontSize: 13,
+              color: page === item.key ? colors.accent.primary : C.textBright,
               padding: '14px 20px', borderBottom: `1px solid ${C.border}`,
-              background: page === item.key ? `${C.blue}11` : 'transparent',
+              background: page === item.key ? colors.accent.primaryMuted : 'transparent',
             }}>{item.label}</button>
           ))}
         </div>
@@ -2598,10 +2561,10 @@ function AppInner() {
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
               padding: '6px 12px', minWidth: 56,
             }}>
-              <span style={{ fontSize: 18, color: isActive ? C.blue : C.textDim, transition: 'color 0.2s' }}>{item.icon}</span>
+              <span style={{ fontSize: 18, color: isActive ? colors.accent.primary : C.textDim, transition: transitions.normal }}>{item.icon}</span>
               <span style={{
-                fontFamily: FO, fontWeight: 700, fontSize: 8, letterSpacing: 1.5,
-                color: isActive ? C.blue : C.textDim, transition: 'color 0.2s',
+                fontFamily: FO, fontWeight: 600, fontSize: 9,
+                color: isActive ? colors.accent.primary : C.textDim, transition: transitions.normal,
               }}>{item.label}</span>
             </button>
           )
