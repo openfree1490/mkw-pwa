@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, Component } from 'react'
+import ChallengeApp from './challenge/ChallengeApp.jsx'
 
 // ── GOOGLE FONTS ──────────────────────────────────────────────────────────
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;800;900&family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap"
@@ -2485,6 +2486,7 @@ const NAV_ITEMS = [
 ]
 
 const MORE_ITEMS = [
+  { key: 'challenge', label: '$5K CHALLENGE' },
   { key: 'momentum', label: 'MOMENTUM' },
   { key: 'analyze', label: 'ANALYZE' },
   { key: 'screener', label: 'SCREENER' },
@@ -2533,6 +2535,7 @@ function AppInner() {
       case 'news': return <NewsPage />
       case 'breadth': return <BreadthPage />
       case 'journal': return <JournalPage />
+      case 'challenge': return <ChallengeApp onBack={() => setPage('home')} />
       default: return <HomePage />
     }
   }
