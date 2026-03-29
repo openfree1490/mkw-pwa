@@ -11,7 +11,7 @@ import RiskTab from './tabs/RiskTab.jsx'
 import DebriefTab from './tabs/DebriefTab.jsx'
 import PlaybookTab from './tabs/PlaybookTab.jsx'
 
-const FONT_URL = "https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=DM+Sans:wght@400;500;600&display=swap"
+const FONT_URL = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
 
 const TABS = [
   { key: 'command', label: 'CMD', icon: '◈' },

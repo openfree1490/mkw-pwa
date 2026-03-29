@@ -26,8 +26,7 @@ export default function ProgressBar({ value, max, label, color = CC.accent, heig
       }}>
         <div style={{
           width: `${pct}%`, height: '100%', borderRadius: height / 2,
-          background: `linear-gradient(90deg, ${color}80, ${color})`,
-          boxShadow: `0 0 8px ${color}40`,
+          background: color,
           transition: 'width 0.5s ease',
         }} />
       </div>

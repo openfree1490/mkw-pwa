@@ -15,7 +15,7 @@ export const TIERS = [
     maxPositions: 2,
     strategies: ['long_call', 'long_put', 'call_debit_spread', 'put_debit_spread'],
     rules: ['No earnings plays', 'Minimum 2:1 R:R', 'Debit spreads and single legs only', 'No overnight unless forced'],
-    color: '#ef4444',
+    color: '#e5334d',
     tag: 'SURVIVE',
   },
   {
@@ -25,7 +25,7 @@ export const TIERS = [
     maxPositions: 3,
     strategies: ['long_call', 'long_put', 'call_debit_spread', 'put_debit_spread', 'call_credit_spread', 'put_credit_spread'],
     rules: ['Wider spreads OK', 'Swing trades allowed', '1 overnight position OK', 'Minimum 2.5:1 R:R'],
-    color: '#f59e0b',
+    color: '#e5a318',
     tag: 'GROW',
   },
   {
@@ -35,7 +35,7 @@ export const TIERS = [
     maxPositions: 4,
     strategies: ['long_call', 'long_put', 'call_debit_spread', 'put_debit_spread', 'call_credit_spread', 'put_credit_spread', 'iron_condor', 'straddle', 'strangle', 'butterfly', 'calendar'],
     rules: ['Full toolkit unlocked', '5% asymmetric bets OK on A+ setups', 'Lock profits at 3:1+', 'Scale into winners'],
-    color: '#00d4aa',
+    color: '#3b7dff',
     tag: 'ACCELERATE',
   },
   {
@@ -45,7 +45,7 @@ export const TIERS = [
     maxPositions: 3,
     strategies: ['long_call', 'long_put', 'call_debit_spread', 'put_debit_spread', 'call_credit_spread', 'put_credit_spread', 'iron_condor', 'butterfly'],
     rules: ['High-conviction only', 'Trailing stops required', 'Protect gains — no hero trades', 'Reduce size if on tilt'],
-    color: '#a855f7',
+    color: '#00c176',
     tag: 'PROTECT',
   },
 ]
@@ -91,7 +91,7 @@ export const TIMEFRAME_MODES = {
     key: 'scalp',
     label: 'Scalp',
     tag: '0-2 DTE',
-    color: '#ff6b6b',
+    color: '#e5334d',
     dteRange: [0, 2],
     deltaRange: [0.55, 0.70],
     description: 'Intraday to next-day expiration. Speed and precision. Momentum-driven.',
@@ -106,7 +106,7 @@ export const TIMEFRAME_MODES = {
     key: 'swing',
     label: 'Swing',
     tag: '3-14 DTE',
-    color: '#00d4aa',
+    color: '#3b7dff',
     dteRange: [3, 14],
     deltaRange: [0.45, 0.60],
     description: 'Multi-day holds. Balanced scoring across all factors. DEFAULT MODE.',
@@ -121,7 +121,7 @@ export const TIMEFRAME_MODES = {
     key: 'position',
     label: 'Position',
     tag: '14-45 DTE',
-    color: '#00ccff',
+    color: '#2da5d6',
     dteRange: [14, 45],
     deltaRange: [0.40, 0.55],
     description: 'Multi-week holds. Trend and IV environment dominate. Patient entries.',
@@ -136,7 +136,7 @@ export const TIMEFRAME_MODES = {
     key: 'leaps',
     label: 'LEAPS',
     tag: '90+ DTE',
-    color: '#a855f7',
+    color: '#7c5cfc',
     dteRange: [90, 730],
     deltaRange: [0.60, 0.80],
     description: 'Long-term directional. Trend is everything. Buy on IV dips.',
@@ -171,11 +171,11 @@ export const DEBRIEF_CHECKLIST = {
 }
 
 export const MOOD_STATES = [
-  { key: 'locked', label: 'Locked In', emoji: '🎯', color: '#00d4aa' },
-  { key: 'confident', label: 'Confident', emoji: '💪', color: '#22c55e' },
-  { key: 'neutral', label: 'Neutral', emoji: '😐', color: '#f59e0b' },
-  { key: 'shaky', label: 'Shaky', emoji: '😟', color: '#ef4444' },
-  { key: 'tilted', label: 'Tilted', emoji: '🔥', color: '#ff2a44' },
+  { key: 'locked', label: 'Locked In', emoji: '🎯', color: '#3b7dff' },
+  { key: 'confident', label: 'Confident', emoji: '💪', color: '#00c176' },
+  { key: 'neutral', label: 'Neutral', emoji: '😐', color: '#e5a318' },
+  { key: 'shaky', label: 'Shaky', emoji: '😟', color: '#e5334d' },
+  { key: 'tilted', label: 'Tilted', emoji: '🔥', color: '#e5334d' },
 ]
 
 export const PLAYBOOK_SETUPS = [
@@ -247,27 +247,27 @@ export const PLAYBOOK_SETUPS = [
   },
 ]
 
-// Design tokens for the challenge module
+// Design tokens for the challenge module — mapped to MKW Design System v2
 export const CC = {
-  bg: '#070b12',
-  surface: '#0c1219',
-  surfaceAlt: '#111a25',
-  border: '#1a2535',
-  borderHi: '#243247',
-  text: '#c8d6e5',
-  textBright: '#e8f0f8',
-  textMuted: '#5a6a7e',
-  accent: '#00d4aa',
-  profit: '#22c55e',
-  loss: '#ef4444',
-  warning: '#f59e0b',
-  blue: '#00ccff',
-  purple: '#a855f7',
-  gold: '#ffcc00',
+  bg: '#0a0e17',        // colors.bg.root
+  surface: '#111622',   // colors.bg.surface
+  surfaceAlt: '#171d2d', // colors.bg.elevated
+  border: '#1e2740',    // colors.border.subtle
+  borderHi: '#263354',  // colors.border.default
+  text: '#8b97b8',      // colors.text.secondary
+  textBright: '#e2e8f4', // colors.text.primary
+  textMuted: '#505c7a', // colors.text.tertiary
+  accent: '#3b7dff',    // colors.accent.primary
+  profit: '#00c176',    // colors.signal.profit
+  loss: '#e5334d',      // colors.signal.loss
+  warning: '#e5a318',   // colors.accent.warning
+  blue: '#2da5d6',      // colors.accent.info
+  purple: '#7c5cfc',    // colors.accent.secondary
+  gold: '#e5a318',      // colors.accent.warning
 }
 
 export const FONTS = {
-  heading: "'Chakra Petch', sans-serif",
-  mono: "'JetBrains Mono', monospace",
-  body: "'DM Sans', sans-serif",
+  heading: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+  mono: "'Geist Mono', 'JetBrains Mono', 'SF Mono', 'Consolas', monospace",
+  body: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
 }

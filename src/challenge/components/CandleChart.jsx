@@ -111,9 +111,9 @@ export default function CandleChart({ bars = [], srLevels = [], entry, stop, tar
         ))}
 
         {/* EMA overlays */}
-        {emaLine(ema8, '#3b82f6')}
-        {emaLine(ema21, '#f97316')}
-        {emaLine(ema50, '#a855f7')}
+        {emaLine(ema8, CC.accent)}
+        {emaLine(ema21, CC.warning)}
+        {emaLine(ema50, CC.purple)}
 
         {/* Candlesticks */}
         {displayBars.map((bar, i) => {
@@ -137,17 +137,17 @@ export default function CandleChart({ bars = [], srLevels = [], entry, stop, tar
         })}
 
         {/* Entry / Stop / Target lines */}
-        {hLine(entry, '#00ccff', 'ENTRY', true)}
+        {hLine(entry, CC.blue, 'ENTRY', true)}
         {hLine(stop, CC.loss, 'STOP', true)}
         {hLine(target, CC.profit, 'TARGET', true)}
 
         {/* Legend */}
         <g transform={`translate(${padding.left + 4}, ${height - 10})`}>
-          <line x1={0} y1={0} x2={16} y2={0} stroke="#3b82f6" strokeWidth={1.5} />
+          <line x1={0} y1={0} x2={16} y2={0} stroke={CC.accent} strokeWidth={1.5} />
           <text x={20} y={3} fill={CC.textMuted} fontSize={8} fontFamily={FONTS.mono}>8 EMA</text>
-          <line x1={60} y1={0} x2={76} y2={0} stroke="#f97316" strokeWidth={1.5} />
+          <line x1={60} y1={0} x2={76} y2={0} stroke={CC.warning} strokeWidth={1.5} />
           <text x={80} y={3} fill={CC.textMuted} fontSize={8} fontFamily={FONTS.mono}>21 EMA</text>
-          <line x1={124} y1={0} x2={140} y2={0} stroke="#a855f7" strokeWidth={1.5} />
+          <line x1={124} y1={0} x2={140} y2={0} stroke={CC.purple} strokeWidth={1.5} />
           <text x={144} y={3} fill={CC.textMuted} fontSize={8} fontFamily={FONTS.mono}>50 EMA</text>
         </g>
       </svg>

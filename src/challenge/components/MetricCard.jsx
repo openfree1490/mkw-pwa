@@ -20,7 +20,6 @@ export default function MetricCard({ label, value, sub, color = CC.textBright, i
       <div style={{
         fontFamily: FONTS.mono, fontSize: small ? 16 : 22, fontWeight: 700,
         color, lineHeight: 1.1,
-        textShadow: color !== CC.textBright ? `0 0 12px ${color}40` : 'none',
       }}>
         {value}
       </div>
