@@ -162,7 +162,8 @@ export default function ChallengeApp({ onBack }) {
   ])
   const [watchlist, setWatchlist] = useStorage('watchlist', [])
   const [debriefs, setDebriefs] = useStorage('debriefs', {})
-  const [apiKey, setApiKey] = useStorage('polygon_api_key', '')
+  const envKey = typeof __POLYGON_API_KEY__ !== 'undefined' ? __POLYGON_API_KEY__ : ''
+  const [apiKey, setApiKey] = useStorage('polygon_api_key', envKey)
   const [timeframeMode, setTimeframeMode] = useStorage('timeframe_mode', 'swing')
 
   const tier = getTier(balance)

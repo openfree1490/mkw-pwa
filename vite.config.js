@@ -54,6 +54,9 @@ export default defineConfig({
       },
     }),
   ],
+  define: {
+    '__POLYGON_API_KEY__': JSON.stringify(process.env.POLYGON_API_KEY || ''),
+  },
   build: {
     chunkSizeWarningLimit: 1000,
     rollupOptions: {
