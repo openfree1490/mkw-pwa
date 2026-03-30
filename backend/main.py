@@ -42,6 +42,14 @@ from journal import (
 import qullamaggie as qull
 from trade_rules import generate_trade_plan, calculate_r_multiple
 from indicators import get_qullamaggie_snapshot
+from entry_criteria import grade_setup, grade_watchlist
+from playbook_engine import generate_playbook
+from pattern_alerts import scan_all_patterns
+from notifications import (
+    get_notification_status, notify_setup, notify_pattern_alert,
+    notify_morning_summary, send_telegram, send_discord,
+)
+from enrichment import enrich_ticker
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("mkw")
@@ -2580,6 +2588,187 @@ def qullamaggie_archive_list(setup_type: str = "", ticker: str = "", limit: int 
 def qullamaggie_archive_analytics():
     """Performance analytics from the Qullamaggie setup archive."""
     return qull.archive_analytics()
+
+
+# ─────────────────────────────────────────────
+# ENTRY CRITERIA ENGINE (Phase 1-6)
+# ─────────────────────────────────────────────
+
+@app.get("/api/entry-grade/{ticker}")
+def entry_grade_ticker(ticker: str):
+    """Grade a single ticker using the 6-condition entry criteria engine."""
+    ticker = ticker.upper().strip()
+    try:
+        spy_df = get_spy()
+        df = fetch_ohlcv(ticker, "2y")
+        if df is None or len(df) < 60:
+            return {"error": f"Insufficient data for {ticker}"}
+
+        graded = grade_setup(df, spy_df, ticker)
+
+        # Generate playbook if score >= 7
+        playbook = None
+        if graded["composite"]["score"] >= 7:
+            playbook = generate_playbook(graded)
+
+        # Enrichment data
+        fund = fetch_fundamentals(ticker)
+        enrichment = enrich_ticker(ticker, df, fund, fetch_ohlcv_fn=fetch_ohlcv)
+
+        result = {
+            **graded,
+            "playbook": playbook,
+            "enrichment": enrichment,
+        }
+        return to_python(result)
+    except Exception as e:
+        log.error(f"entry_grade {ticker}: {e}")
+        return {"error": str(e), "ticker": ticker}
+
+
+@app.get("/api/entry-grade-watchlist")
+def entry_grade_watchlist(tickers: str = ""):
+    """Grade multiple tickers. Pass comma-separated tickers or uses default watchlist."""
+    try:
+        if tickers:
+            ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+        else:
+            ticker_list = WATCHLIST[:20]
+
+        spy_df = get_spy()
+        if spy_df is None:
+            return {"error": "Could not fetch SPY data"}
+
+        results = []
+        for tk in ticker_list:
+            try:
+                df = fetch_ohlcv(tk, "2y")
+                if df is None or len(df) < 60:
+                    continue
+                graded = grade_setup(df, spy_df, tk)
+
+                # Lightweight playbook for list view
+                playbook = None
+                if graded["composite"]["score"] >= 7:
+                    playbook = generate_playbook(graded)
+
+                fund = fetch_fundamentals(tk)
+                enrichment = enrich_ticker(tk, df, fund, fetch_ohlcv_fn=fetch_ohlcv)
+
+                results.append({
+                    **graded,
+                    "playbook": playbook,
+                    "enrichment": enrichment,
+                })
+            except Exception as e:
+                log.warning(f"entry_grade_watchlist {tk}: {e}")
+
+        results.sort(key=lambda x: x.get("composite", {}).get("score", 0), reverse=True)
+        return to_python({
+            "stocks": results,
+            "count": len(results),
+            "lastUpdated": datetime.utcnow().isoformat(),
+        })
+    except Exception as e:
+        log.error(f"entry_grade_watchlist: {e}")
+        return {"error": str(e)}
+
+
+@app.get("/api/pattern-alerts")
+def pattern_alerts(tickers: str = ""):
+    """Scan for forming patterns across watchlist."""
+    try:
+        if tickers:
+            ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+        else:
+            ticker_list = WATCHLIST[:20]
+
+        spy_df = get_spy()
+        if spy_df is None:
+            return {"error": "Could not fetch SPY data"}
+
+        alerts = scan_all_patterns(ticker_list, fetch_ohlcv, spy_df, grade_setup)
+        return to_python({
+            "alerts": alerts,
+            "count": len(alerts),
+            "lastUpdated": datetime.utcnow().isoformat(),
+        })
+    except Exception as e:
+        log.error(f"pattern_alerts: {e}")
+        return {"error": str(e)}
+
+
+@app.get("/api/notifications/status")
+def notification_status():
+    """Check which notification channels are configured."""
+    return get_notification_status()
+
+
+@app.post("/api/notifications/test")
+async def test_notification(request: Request):
+    """Send a test notification to configured channels."""
+    try:
+        body = await request.json()
+        channel = body.get("channel", "all")
+        message = body.get("message", "MKW Test Notification — System is connected!")
+
+        results = {}
+        if channel in ("telegram", "all"):
+            results["telegram"] = send_telegram(f"🔔 {message}")
+        if channel in ("discord", "all"):
+            results["discord"] = send_discord(content=f"🔔 {message}")
+        return results
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/api/notifications/send-alert")
+async def send_alert_notification(request: Request):
+    """Manually trigger notification for a graded setup."""
+    try:
+        body = await request.json()
+        ticker = body.get("ticker", "").upper().strip()
+        if not ticker:
+            return {"error": "ticker required"}
+
+        spy_df = get_spy()
+        df = fetch_ohlcv(ticker, "2y")
+        if df is None:
+            return {"error": f"No data for {ticker}"}
+
+        graded = grade_setup(df, spy_df, ticker)
+        playbook = generate_playbook(graded) if graded["composite"]["score"] >= 7 else None
+
+        results = notify_setup(graded, playbook)
+        return {"sent": results, "ticker": ticker, "score": graded["composite"]["score"]}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/api/notifications/morning-summary")
+async def send_morning_summary():
+    """Trigger morning summary notification."""
+    try:
+        spy_df = get_spy()
+        if spy_df is None:
+            return {"error": "Could not fetch SPY"}
+
+        ticker_list = WATCHLIST[:15]
+        grades = []
+        for tk in ticker_list:
+            try:
+                df = fetch_ohlcv(tk, "2y")
+                if df and len(df) >= 60:
+                    grades.append(grade_setup(df, spy_df, tk))
+            except Exception:
+                pass
+
+        alerts = scan_all_patterns(ticker_list[:10], fetch_ohlcv, spy_df, grade_setup)
+
+        results = notify_morning_summary(grades, alerts)
+        return {"sent": results, "graded": len(grades), "alerts": len(alerts)}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 # ─────────────────────────────────────────────
