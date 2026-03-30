@@ -12,11 +12,13 @@ import DebriefTab from './tabs/DebriefTab.jsx'
 import PlaybookTab from './tabs/PlaybookTab.jsx'
 import GradingTab from './tabs/GradingTab.jsx'
 import AlertsTab from './tabs/AlertsTab.jsx'
+import TodaysWatchTab from './tabs/TodaysWatchTab.jsx'
 
 const FONT_URL = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
 
 const TABS = [
   { key: 'command', label: 'CMD', icon: '◈' },
+  { key: 'todays', label: 'TODAY', icon: '◎' },
   { key: 'grading', label: 'GRADE', icon: '◆' },
   { key: 'alerts', label: 'ALERTS', icon: '⚡' },
   { key: 'watchlist', label: 'WATCH', icon: '◉' },
@@ -187,6 +189,7 @@ export default function ChallengeApp({ onBack }) {
     }
     switch (activeTab) {
       case 'command': return <CommandTab balance={balance} trades={trades} balanceHistory={balanceHistory} openPositions={openPositions} />
+      case 'todays': return <TodaysWatchTab apiKey={apiKey} balance={balance} onOpenTrade={handleOpenTrade} />
       case 'grading': return <GradingTab watchlist={watchlist} apiKey={apiKey} />
       case 'alerts': return <AlertsTab watchlist={watchlist} />
       case 'watchlist': return <WatchlistTab watchlist={watchlist} setWatchlist={setWatchlist} apiKey={apiKey} timeframeMode={timeframeMode} setTimeframeMode={setTimeframeMode} />

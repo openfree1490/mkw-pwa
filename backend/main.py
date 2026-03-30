@@ -50,6 +50,8 @@ from notifications import (
     notify_morning_summary, send_telegram, send_discord,
 )
 from enrichment import enrich_ticker
+from short_setups import detect_all_short_setups
+from trade_ideas import generate_short_ideas
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("mkw")
@@ -1271,6 +1273,18 @@ SCREENER_PRESETS = {
         "filters": {},
         "special": "dual_convergence",
     },
+    "short_setups": {
+        "name": "Short Setup Scanner",
+        "description": "All 6 systematic short patterns: Stage 4 Breakdown, Failed Breakout, Distribution Top, Parabolic Exhaustion, EMA Rejection, Earnings Gap Fade",
+        "filters": {},
+        "special": "short_setups",
+    },
+    "todays_top_5": {
+        "name": "Today's Top 5 Plays",
+        "description": "Today's highest-confidence long and short setups ranked by score",
+        "filters": {},
+        "special": "todays_top_5",
+    },
 }
 
 # ─────────────────────────────────────────────
@@ -1442,6 +1456,7 @@ async def lifespan(app: FastAPI):
     import threading
     threading.Thread(target=_warmup, daemon=True).start()
     threading.Thread(target=_warmup_data_sources, daemon=True).start()
+    threading.Thread(target=_todays_plays_scheduler, daemon=True).start()
     yield
 
 app = FastAPI(title="MKW Command Center v2.0", lifespan=lifespan)
@@ -1918,8 +1933,58 @@ def get_screener(
         if "zone" in p: zone = p["zone"]
         if "short_mode" in p: short_mode = p["short_mode"]
 
-    # Handle Qullamaggie special presets
+    # Handle special presets
     special = SCREENER_PRESETS.get(preset, {}).get("special", "") if preset else ""
+
+    # Short setups scanner
+    if special == "short_setups":
+        cached_wl = cache_get("watchlist", CACHE_WATCHLIST * 4)
+        stocks = (cached_wl or {}).get("stocks", [])
+        if not stocks:
+            resp = _build_watchlist()
+            stocks = (resp or {}).get("stocks", [])
+        short_results = []
+        spy_df = get_spy()
+        for s in stocks:
+            try:
+                tk = s.get("tk", s.get("ticker", ""))
+                if not tk:
+                    continue
+                df = fetch_ohlcv(tk, "2y")
+                if df is None or len(df) < 60:
+                    continue
+                wein_s = s.get("wein", {})
+                rs_val = s.get("rs", s.get("min", {}).get("rs", 50))
+                phase_val = s.get("kell", {}).get("phase", "Unknown")
+                finra_d = s.get("finra", {})
+                techs = s.get("technicals", {})
+                sr_lvls = s.get("srLevels", [])
+                fund_d = s.get("fundamentals", {})
+                setups = detect_all_short_setups(tk, df, wein_s, rs_val, phase_val, finra_d, techs, sr_lvls, fund_d)
+                for setup in setups:
+                    if setup.get("confidence", 0) >= 50:
+                        short_results.append({**s, "short_setup": setup, "short_sort_score": setup["confidence"]})
+            except Exception:
+                continue
+        short_results.sort(key=lambda x: x.get("short_sort_score", 0), reverse=True)
+        return to_python({
+            "stocks": short_results, "total": len(short_results),
+            "preset": preset, "presetName": "Short Setup Scanner",
+        })
+
+    # Today's top 5 (delegates to todays-plays endpoint logic)
+    if special == "todays_top_5":
+        try:
+            result = _generate_todays_plays()
+            plays = result.get("plays", [])
+            return to_python({
+                "stocks": plays, "total": len(plays),
+                "preset": preset, "presetName": "Today's Top 5 Plays",
+                "generated_at": result.get("generated_at"),
+            })
+        except Exception as e:
+            return {"stocks": [], "total": 0, "preset": preset, "error": str(e)}
+
     if special in ("qull_breakouts", "qull_parabolic", "qull_ep", "dual_convergence"):
         cached_wl = cache_get("watchlist", CACHE_WATCHLIST * 4)
         stocks = (cached_wl or {}).get("stocks", [])
@@ -2769,6 +2834,205 @@ async def send_morning_summary():
         return {"sent": results, "graded": len(grades), "alerts": len(alerts)}
     except Exception as e:
         return {"error": str(e)}
+
+
+# ─────────────────────────────────────────────
+# TODAY'S PLAYS — Top 5 daily watchlist (long + short)
+# ─────────────────────────────────────────────
+_todays_plays_cache = {"data": None, "generated_at": None}
+
+def _generate_todays_plays():
+    """Generate top 5 daily plays merging long + short candidates."""
+    import pytz
+    et = pytz.timezone("US/Eastern")
+    now_et = datetime.now(et)
+
+    spy_df = get_spy()
+    mkt = _mkt_snapshot
+    candidates = []
+
+    # Use watchlist universe
+    ticker_list = WATCHLIST[:40]
+
+    for ticker in ticker_list:
+        try:
+            df = fetch_ohlcv(ticker, "2y")
+            if df is None or len(df) < 60:
+                continue
+
+            price = float(df["Close"].iloc[-1])
+            fund = fetch_fundamentals(ticker)
+            rs = calc_rs_rating(df, spy_df) if spy_df is not None else 50
+            wein = weinstein_stage(df)
+            tpl_criteria, tpl_score = minervini_template(df, rs)
+            kell_result = kell_phase(df)
+            phase = kell_result[0]
+            vcp = detect_vcp(df)
+            technicals = calc_technicals(df)
+            sr_levels = calc_sr_levels(df)
+
+            finra_data = {}
+            try:
+                finra_data = finra.analyze_ticker(ticker)
+            except Exception:
+                pass
+
+            conv_s, conv_z = convergence_score(wein, tpl_score, rs, phase, vcp, mkt, fund, df)
+            is_short = wein["stage"] in ("3", "4A", "4B")
+
+            # Long candidates
+            if not is_short and conv_z in ("CONVERGENCE", "SECONDARY") and conv_s >= 14:
+                candidates.append({
+                    "ticker": ticker,
+                    "price": round(price, 2),
+                    "direction": "LONG",
+                    "setup_type": f"MKW_{conv_z}",
+                    "confidence": min(95, 50 + conv_s * 2),
+                    "entry": round(price, 2),
+                    "stop": round(vcp["pivot"] * 0.97, 2) if vcp.get("pivot") and vcp["pivot"] > 0 else round(price * 0.93, 2),
+                    "target1": round(price * 1.12, 2),
+                    "target2": round(price * 1.22, 2),
+                    "thesis": f"Stage {wein['stage']}, RS {rs}, {phase}, template {tpl_score}/8. {conv_z} zone ({conv_s}/23).",
+                    "stage": wein["stage"],
+                    "rs": rs,
+                    "phase": phase,
+                    "tpl_score": tpl_score,
+                    "conv_score": conv_s,
+                    "conv_zone": conv_z,
+                    "sector": fund.get("sector", ""),
+                    "name": fund.get("name", ticker),
+                    "conditions": {
+                        "stage_2": wein["stage"] in ("2A", "2B"),
+                        "rs_70_plus": rs >= 70,
+                        "template_7_plus": tpl_score >= 7,
+                        "convergence": conv_z == "CONVERGENCE",
+                        "kell_entry": phase in ("EMA Crossback", "Pop", "Base n Break"),
+                    },
+                })
+
+            # Short candidates
+            short_setups = detect_all_short_setups(
+                ticker, df, wein, rs, phase, finra_data, technicals, sr_levels, fund
+            )
+            for setup in short_setups:
+                if setup.get("confidence", 0) >= 55:
+                    candidates.append({
+                        "ticker": ticker,
+                        "price": round(price, 2),
+                        "direction": "SHORT",
+                        "setup_type": setup["setup_type"],
+                        "confidence": setup["confidence"],
+                        "entry": setup["entry"],
+                        "stop": setup["stop"],
+                        "target1": setup["target1"],
+                        "target2": setup["target2"],
+                        "thesis": setup["thesis"],
+                        "stage": wein["stage"],
+                        "rs": rs,
+                        "phase": phase,
+                        "tpl_score": tpl_score,
+                        "conv_score": conv_s,
+                        "conv_zone": conv_z,
+                        "sector": fund.get("sector", ""),
+                        "name": fund.get("name", ticker),
+                        "conditions": setup.get("conditions", {}),
+                    })
+        except Exception as e:
+            log.warning(f"todays_plays scan {ticker}: {e}")
+            continue
+
+    # Sort by confidence descending, take top 5
+    candidates.sort(key=lambda c: c.get("confidence", 0), reverse=True)
+    top5 = candidates[:5]
+
+    # Assign rank
+    for i, c in enumerate(top5):
+        c["rank"] = i + 1
+
+    # Determine market status
+    hour = now_et.hour
+    minute = now_et.minute
+    if now_et.weekday() >= 5:
+        market_status = "WEEKEND"
+    elif hour < 9 or (hour == 9 and minute < 30):
+        market_status = "PRE_MARKET"
+    elif hour >= 16:
+        market_status = "AFTER_HOURS"
+    else:
+        market_status = "MARKET_OPEN"
+
+    # Next refresh schedule: 8:30, 10:30, 14:00 ET
+    refresh_times = [(8, 30), (10, 30), (14, 0)]
+    next_refresh = None
+    for rh, rm in refresh_times:
+        rt = now_et.replace(hour=rh, minute=rm, second=0, microsecond=0)
+        if now_et < rt:
+            next_refresh = rt.isoformat()
+            break
+    if not next_refresh:
+        # Next day 8:30
+        tomorrow = now_et + timedelta(days=1)
+        next_refresh = tomorrow.replace(hour=8, minute=30, second=0, microsecond=0).isoformat()
+
+    result = {
+        "plays": top5,
+        "total_scanned": len(ticker_list),
+        "total_candidates": len(candidates),
+        "generated_at": now_et.isoformat(),
+        "next_refresh": next_refresh,
+        "market_status": market_status,
+    }
+
+    _todays_plays_cache["data"] = result
+    _todays_plays_cache["generated_at"] = time.time()
+    log.info(f"Today's plays generated: {len(top5)} plays from {len(candidates)} candidates")
+    return result
+
+
+def _todays_plays_scheduler():
+    """Background thread that regenerates today's plays at 8:30 AM, 10:30 AM, 2:00 PM ET."""
+    import pytz
+    et = pytz.timezone("US/Eastern")
+    schedule_times = [(8, 30), (10, 30), (14, 0)]
+
+    while True:
+        try:
+            now_et = datetime.now(et)
+            # Only run on weekdays
+            if now_et.weekday() < 5:
+                for sh, sm in schedule_times:
+                    target = now_et.replace(hour=sh, minute=sm, second=0, microsecond=0)
+                    diff = abs((now_et - target).total_seconds())
+                    if diff < 120:  # Within 2 minutes of scheduled time
+                        log.info(f"Scheduled today's plays generation at {now_et.strftime('%H:%M')} ET")
+                        _generate_todays_plays()
+                        time.sleep(180)  # Sleep 3 min to avoid re-trigger
+                        break
+            time.sleep(60)  # Check every minute
+        except Exception as e:
+            log.warning(f"todays_plays_scheduler error: {e}")
+            time.sleep(120)
+
+
+@app.get("/api/todays-plays")
+def get_todays_plays(force: bool = False):
+    """Get today's top 5 plays. Auto-generates if stale (>1 hour) or forced."""
+    cached = _todays_plays_cache.get("data")
+    cached_at = _todays_plays_cache.get("generated_at", 0)
+
+    # Return cache if fresh (< 1 hour) and not forced
+    if cached and not force and (time.time() - cached_at) < 3600:
+        return cached
+
+    # Generate fresh
+    try:
+        result = _generate_todays_plays()
+        return result
+    except Exception as e:
+        log.error(f"todays_plays error: {e}")
+        if cached:
+            return cached
+        return {"plays": [], "error": str(e), "generated_at": datetime.utcnow().isoformat()}
 
 
 # ─────────────────────────────────────────────

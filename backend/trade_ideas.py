@@ -14,6 +14,7 @@ from options_engine import (
     build_strategy_card,
 )
 from grading import grade_trade
+from short_setups import detect_all_short_setups
 
 log = logging.getLogger("mkw.ideas")
 
@@ -768,3 +769,19 @@ def generate_trade_ideas(
         "convZone": conv_zone,
         "convScore": conv_score,
     }
+
+
+def generate_short_ideas(ticker, df, wein, rs, phase, finra_data, technicals, sr_levels, fund):
+    """
+    Run all 6 short setup detectors and return qualifying setups (confidence >= 55).
+    Each result includes setup_type, confidence, entry/stop/targets, thesis.
+    """
+    try:
+        setups = detect_all_short_setups(
+            ticker, df, wein, rs, phase, finra_data, technicals, sr_levels, fund
+        )
+        # Filter to confidence >= 55
+        return [s for s in setups if s.get("confidence", 0) >= 55]
+    except Exception as e:
+        log.warning(f"generate_short_ideas {ticker}: {e}")
+        return []

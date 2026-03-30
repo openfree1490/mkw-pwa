@@ -6,3 +6,4 @@ numpy
 requests
 finnhub-python
 anthropic
+pytz
